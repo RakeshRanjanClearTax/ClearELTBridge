@@ -9,3 +9,5 @@ BuildProjectResult.*
 CompileLabels.xml
 BPCheck.xml
 *.log
+Resources/
+*.delete
