@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTIngestionTrigger</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Notifies the Clear backend that the file is uploaded (POST send/result). Byte-compatible with
+/// ELTTriggerIngestion: the pre-signed URL's query string is stripped before it goes into
+/// metadata.s3Details[0].url, and the body shape is { commandId, metadata: { s3Details: [ { url } ] } }.
+/// </summary>
+internal class CELTIngestionTrigger
+{
+    private CELTApiClient   apiClient;
+    private CELTLogger      logger;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new(CELTLogger _logger = new CELTLogger(), CELTApiClient _apiClient = null)
+    {
+        logger    = _logger;
+        apiClient = _apiClient ? _apiClient : new CELTApiClient(_logger);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>triggerIngestion</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Posts the ingestion trigger for the uploaded file.
+    /// </summary>
+    /// <returns>true on success</returns>
+    public boolean triggerIngestion(str _commandId = '', str _presignedURL = '')
+    {
+        CELTParameters parameter = CELTParameters::find();
+
+        apiClient.initialize(CELTAPIRequestType::TriggerIngestion);
+        apiClient.setURL(parameter.BaseURL + parameter.TriggerIngestionURL);
+        apiClient.setMethod(CELTAPIMethodType::POST);
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.setRequestBody(this.getRequestBody(_commandId, _presignedURL));
+        apiClient.setContentType(CELTConstants::application_json);
+        apiClient.sendRequest();
+
+        return apiClient.isSuccess();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getRequestBody</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds the ingestion body, stripping the query string off the pre-signed URL.
+    /// </summary>
+    private str getRequestBody(str _commandId, str _presignedURL)
+    {
+        int    qPos     = strScan(_presignedURL, CELTConstants::questionMark, 1, strLen(_presignedURL));
+        str    cleanUrl = qPos > 0 ? subStr(_presignedURL, 1, qPos - 1) : _presignedURL;
+
+        return strFmt('{"commandId":"%1","metadata":{"s3Details":[{"url":"%2"}]}}', _commandId, cleanUrl);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCommandContract</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Minimal typed envelope for the GetCommand response. This is the only typed contract retained
+/// from the original ~35-class contract graph; every other payload is navigated as a JObject.
+/// </summary>
+internal final class CELTCommandContract
+{
+    private str commandId;
+    private str command;
+    private str jobType;
+    private str config;
+    private str fileUrl;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>parmCommandId</Name>
+				<Source><![CDATA[
+    public str parmCommandId(str _commandId = commandId)
+    {
+        commandId = _commandId;
+        return commandId;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmCommand</Name>
+				<Source><![CDATA[
+    public str parmCommand(str _command = command)
+    {
+        command = _command;
+        return command;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmJobType</Name>
+				<Source><![CDATA[
+    public str parmJobType(str _jobType = jobType)
+    {
+        jobType = _jobType;
+        return jobType;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmConfig</Name>
+				<Source><![CDATA[
+    public str parmConfig(str _config = config)
+    {
+        config = _config;
+        return config;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmFileUrl</Name>
+				<Source><![CDATA[
+    public str parmFileUrl(str _fileUrl = fileUrl)
+    {
+        fileUrl = _fileUrl;
+        return fileUrl;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

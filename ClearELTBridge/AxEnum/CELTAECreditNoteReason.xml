@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxEnum xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTAECreditNoteReason</Name>
+	<Label>@CELTLabels:AECreditNoteReason</Label>
+	<UseEnumValue>No</UseEnumValue>
+	<EnumValues>
+		<AxEnumValue>
+			<Name>None</Name>
+			<Label>@CELTLabels:None</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>SupplyCancelled</Name>
+			<Label>@CELTLabels:CnReasonSupplyCancelled</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>TaxTreatmentChanged</Name>
+			<Label>@CELTLabels:CnReasonTaxTreatmentChanged</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>ConsiderationAltered</Name>
+			<Label>@CELTLabels:CnReasonConsiderationAltered</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>GoodsReturned</Name>
+			<Label>@CELTLabels:CnReasonGoodsReturned</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>TaxChargedInError</Name>
+			<Label>@CELTLabels:CnReasonTaxChargedInError</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>VolumeDiscount</Name>
+			<Label>@CELTLabels:CnReasonVolumeDiscount</Label>
+		</AxEnumValue>
+	</EnumValues>
+	<IsExtensible>true</IsExtensible>
+</AxEnum>

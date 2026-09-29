@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTPaymentVatSplitTmp</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// In-memory lines of the confirm-payment dialog: one row per VAT rate of the invoice,
+/// pre-filled with what is still outstanding at that rate. A fully collected rate still gets a
+/// line, at zero, so the reader sees it is settled rather than wonders why it vanished.
+/// </summary>
+public class CELTPaymentVatSplitTmp extends common
+{
+}
+]]></Declaration>
+		<Methods />
+	</SourceCode>
+	<Label>@CELTLabels:PaymentVatSplit</Label>
+	<TableType>InMemory</TableType>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>Rate</Name>
+			<Label>@CELTLabels:TaxPercent</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>InvoiceAmount</Name>
+			<Label>@CELTLabels:InvoiceRateAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>OutstandingAmount</Name>
+			<Label>@CELTLabels:OutstandingAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AmountToReport</Name>
+			<Label>@CELTLabels:AmountToReport</Label>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes />
+	<Mappings />
+	<Relations />
+	<StateMachines />
+</AxTable>

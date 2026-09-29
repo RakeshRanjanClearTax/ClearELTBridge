@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCommandFetcher</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Fetches the next command from the Clear backend (GET on the get-command endpoint) and exposes
+/// its command id, command type, ERP config JSON and file details. The response envelope is
+/// navigated as a JObject and projected onto <c>CELTCommandContract</c>.
+/// </summary>
+internal class CELTCommandFetcher
+{
+    private CELTApiClient           apiClient;
+    private CELTLogger              logger;
+    private CELTCommandContract     command;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new(CELTLogger _logger = new CELTLogger(), CELTApiClient _apiClient = null)
+    {
+        logger    = _logger;
+        apiClient = _apiClient ? _apiClient : new CELTApiClient(_logger);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>fetchCommands</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Requests the next command. Returns true only when the call succeeded and a command id was
+    /// returned; an empty result (no work) yields false so the orchestration loop can stop.
+    /// </summary>
+    /// <returns>true when a command is available</returns>
+    public boolean fetchCommands()
+    {
+        CELTParameters parameter = CELTParameters::find();
+
+        apiClient.initialize(CELTAPIRequestType::GetCommand);
+        apiClient.setURL(parameter.BaseURL + parameter.GetCommandsURL);
+        apiClient.setMethod(CELTAPIMethodType::GET);
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.sendRequest();
+
+        if (!apiClient.isSuccess())
+        {
+            return false;
+        }
+
+        this.parseResponse(apiClient.getResponseBody());
+
+        return command != null && command.parmCommandId() != '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>loadFromResponse</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Seeds the fetcher from a command envelope another caller already fetched (the Get status
+    /// poller) - the backend dequeues a command per GET, so fetching again would come back empty
+    /// and the command would be lost.
+    /// </summary>
+    /// <param name = "_body">the raw response body of the fetch that returned the command</param>
+    /// <returns>true when the envelope carries a command id</returns>
+    public boolean loadFromResponse(str _body)
+    {
+        this.parseResponse(_body);
+        return command != null && command.parmCommandId() != '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parseResponse</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Projects the GetCommand response JSON onto the typed contract.
+    /// Shape: result{ commandId, command, jobType, metadata{ erpConfig, fileDetails{ url } } }.
+    /// </summary>
+    /// <param name = "_body">response body JSON</param>
+    private void parseResponse(str _body)
+    {
+        command = new CELTCommandContract();
+
+        if (_body == '')
+        {
+            return;
+        }
+
+        Newtonsoft.Json.Linq.JObject root       = Newtonsoft.Json.Linq.JObject::Parse(_body);
+        Newtonsoft.Json.Linq.JToken  resultTok  = root.get_Item(CELTConstants::jResult);
+        Newtonsoft.Json.Linq.JObject resultObj  = resultTok as Newtonsoft.Json.Linq.JObject;
+
+        if (resultObj == null)
+        {
+            return;
+        }
+
+        command.parmCommandId(this.tokenToStr(resultObj.get_Item(CELTConstants::jCommandId)));
+        command.parmCommand(this.tokenToStr(resultObj.get_Item(CELTConstants::jCommand)));
+        command.parmJobType(this.tokenToStr(resultObj.get_Item(CELTConstants::jJobType)));
+
+        Newtonsoft.Json.Linq.JToken  metaTok = resultObj.get_Item(CELTConstants::jMetadata);
+        Newtonsoft.Json.Linq.JObject metaObj = metaTok as Newtonsoft.Json.Linq.JObject;
+
+        if (metaObj != null)
+        {
+            Newtonsoft.Json.Linq.JToken erpConfigTok = metaObj.get_Item(CELTConstants::jErpConfig);
+            if (erpConfigTok != null)
+            {
+                command.parmConfig(erpConfigTok.ToString());
+            }
+
+            Newtonsoft.Json.Linq.JToken  fileTok = metaObj.get_Item(CELTConstants::jFileDetails);
+            Newtonsoft.Json.Linq.JObject fileObj = fileTok as Newtonsoft.Json.Linq.JObject;
+            if (fileObj != null)
+            {
+                command.parmFileUrl(this.tokenToStr(fileObj.get_Item(CELTConstants::jUrl)));
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>tokenToStr</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Null-safe token-to-string.
+    /// </summary>
+    private str tokenToStr(Newtonsoft.Json.Linq.JToken _token)
+    {
+        return _token != null ? _token.ToString() : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getCommandType</Name>
+				<Source><![CDATA[
+    public str getCommandType()
+    {
+        return command ? command.parmCommand() : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getCommandId</Name>
+				<Source><![CDATA[
+    public str getCommandId()
+    {
+        return command ? command.parmCommandId() : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getConfig</Name>
+				<Source><![CDATA[
+    public str getConfig()
+    {
+        return command ? command.parmConfig() : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getFileDetails</Name>
+				<Source><![CDATA[
+    public str getFileDetails()
+    {
+        return command ? command.parmFileUrl() : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>fetchCommandsSync</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Synchronous (on-demand) command fetch: POSTs the GENERATE_IRN payload to the dedicated
+    /// sync endpoint (a full URL stored in CELTParameters.GetCommandURLSync). The response is the
+    /// same GetCommand envelope as the async path. Auth token is injected by the client.
+    /// </summary>
+    /// <param name = "_payload">GENERATE_IRN payload JSON</param>
+    /// <returns>true when a command is available</returns>
+    public boolean fetchCommandsSync(str _payload)
+    {
+        CELTParameters parameter = CELTParameters::find();
+
+        if (parameter.GetCommandURLSync == '')
+        {
+            logger.logErrorMessage(
+                classStr(CELTCommandFetcher) + '/' + methodStr(CELTCommandFetcher, fetchCommandsSync),
+                'GetCommandURLSync is not configured in Clear ELT parameters.');
+            return false;
+        }
+
+        apiClient.initialize(CELTAPIRequestType::GetCommandSync);
+        apiClient.setURL(parameter.GetCommandURLSync);
+        apiClient.setMethod(CELTAPIMethodType::POST);
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.setContentType(CELTConstants::application_json);
+        if (_payload != '')
+        {
+            apiClient.setRequestBody(_payload);
+        }
+        apiClient.sendRequest();
+
+        if (!apiClient.isSuccess())
+        {
+            return false;
+        }
+
+        this.parseResponse(apiClient.getResponseBody());
+
+        return command != null && command.parmCommandId() != '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>clear</Name>
+				<Source><![CDATA[
+    public void clear()
+    {
+        command = null;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setApiClient</Name>
+				<Source><![CDATA[
+    public void setApiClient(CELTApiClient _apiClient)
+    {
+        apiClient = _apiClient;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

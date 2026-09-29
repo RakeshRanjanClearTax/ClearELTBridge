@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTableExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>LogisticsPostalAddress.ClearELTBridge</Name>
+	<FieldGroupExtensions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>CELTEInvoiceFields</Name>
+			<Label>@CELTLabels:EInvoiceFields</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEFreeZoneIndicator</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<FieldModifications />
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>CELTAEFreeZoneIndicator</Name>
+			<HelpText>@CELTLabels:AEFreeZoneIndicatorHelp</HelpText>
+			<Label>@CELTLabels:AEFreeZoneIndicator</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes />
+	<Mappings />
+	<PropertyModifications />
+	<RelationExtensions />
+	<RelationModifications />
+	<Relations />
+</AxTableExtension>

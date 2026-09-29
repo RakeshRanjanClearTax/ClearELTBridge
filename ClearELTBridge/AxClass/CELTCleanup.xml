@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCleanup</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Batch that purges log rows older than a retention window. The window comes from the dialog
+/// (CELTCleanupContract, pre-filled with CELTParameters.RetentionDays) and the run reports how many
+/// rows it deleted. Replaces the original ELTCleanUpService/Controller/Contract trio.
+/// </summary>
+internal class CELTCleanup extends SysOperationServiceController
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new()
+    {
+        super();
+        this.parmClassName(classStr(CELTCleanup));
+        this.parmMethodName(methodStr(CELTCleanup, purge));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point.
+    /// </summary>
+    /// <param name = "_args">menu args</param>
+    public static void main(Args _args)
+    {
+        CELTCleanup controller = new CELTCleanup();
+
+        // Reliable-async like the original cleanup controller: the run is queued as a batch job
+        // and survives the client session.
+        controller.parmExecutionMode(SysOperationExecutionMode::ReliableAsynchronous);
+        controller.parmDialogCaption("@CELTLabels:Cleanup");
+        controller.startOperation();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>purge</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Deletes log rows older than the requested retention window and reports the count deleted.
+    /// A non-positive dialog value falls back to CELTParameters.RetentionDays (30 when unset).
+    /// </summary>
+    /// <param name = "_contract">dialog contract carrying the days to keep</param>
+    public void purge(CELTCleanupContract _contract)
+    {
+        CELTLogger      logger    = new CELTLogger();
+        CELTLog         log;
+        CELTLog         logCount;
+        Counter         days;
+        utcDateTime     cutoff;
+        utcDateTime     hardCutoff;
+        int64           total;
+        str             msg;
+
+        days = _contract ? _contract.parmKeepDataForDays() : 0;
+        if (days <= 0)
+        {
+            days = CELTCleanupContract::defaultDays();
+        }
+
+        cutoff     = DateTimeUtil::addDays(DateTimeUtil::utcNow(), -days);
+        hardCutoff = DateTimeUtil::addDays(DateTimeUtil::utcNow(), -(days * 2));
+
+        select count(RecId) from logCount
+            where logCount.CreatedDateTime < cutoff
+               && (logCount.Uploaded == NoYes::Yes || logCount.APIRequestType != CELTAPIRequestType::None);
+        total = logCount.RecId;
+
+        select count(RecId) from logCount
+            where logCount.CreatedDateTime < hardCutoff
+               && logCount.Uploaded == NoYes::No
+               && logCount.APIRequestType == CELTAPIRequestType::None;
+        total += logCount.RecId;
+
+        ttsbegin;
+        log.skipDeleteActions(true);
+        log.skipDeleteMethod(true);
+
+        // Aged rows that are safe to drop: uploaded telemetry, and API payload rows (local-only).
+        delete_from log
+            where log.CreatedDateTime < cutoff
+               && (log.Uploaded == NoYes::Yes || log.APIRequestType != CELTAPIRequestType::None);
+
+        // Not-yet-uploaded telemetry gets a double grace window before it is dropped too - this
+        // survives endpoint outages without letting the table grow unbounded when the uploader
+        // batch is not scheduled at all.
+        delete_from log
+            where log.CreatedDateTime < hardCutoff
+               && log.Uploaded == NoYes::No
+               && log.APIRequestType == CELTAPIRequestType::None;
+        ttscommit;
+
+        msg = strFmt("@CELTLabels:CleanupResult", total, days);
+        logger.logInfoMessage(classStr(CELTCleanup) + '/' + methodStr(CELTCleanup, purge), msg);
+        info(msg);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

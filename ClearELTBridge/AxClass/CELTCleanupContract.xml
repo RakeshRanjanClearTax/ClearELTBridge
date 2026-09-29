@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCleanupContract</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Dialog contract for the cleanup batch: how many days of log data to keep.
+/// Implements SysOperationInitializable so the framework pre-fills the dialog defaults.
+/// </summary>
+[DataContract]
+internal final class CELTCleanupContract extends SysOperationDataContractBase implements SysOperationInitializable
+{
+    Counter keepDataForDays;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>parmKeepDataForDays</Name>
+				<Source><![CDATA[
+    [DataMember, SysOperationLabel(literalStr("@CELTLabels:KeepDataForDays"))]
+    public Counter parmKeepDataForDays(Counter _keepDataForDays = keepDataForDays)
+    {
+        // A zero/blank value (including a stale saved value) falls back to the configured default,
+        // mirroring the original contract's coercion, so the dialog always shows the real window.
+        if (_keepDataForDays <= 0)
+        {
+            keepDataForDays = CELTCleanupContract::defaultDays();
+        }
+        else
+        {
+            keepDataForDays = _keepDataForDays;
+        }
+
+        return keepDataForDays;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initialize</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Pre-fills the dialog with the configured retention (30 when parameters are unset).
+    /// </summary>
+    public void initialize()
+    {
+        keepDataForDays = CELTCleanupContract::defaultDays();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>defaultDays</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The configured retention window: CELTParameters.RetentionDays, or 30 when unset.
+    /// </summary>
+    /// <returns>days to keep</returns>
+    public static Counter defaultDays()
+    {
+        CELTParameters parameter = CELTParameters::find();
+
+        return parameter.RetentionDays > 0 ? parameter.RetentionDays : 30;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

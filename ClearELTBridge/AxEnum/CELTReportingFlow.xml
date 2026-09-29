@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxEnum xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTReportingFlow</Name>
+	<Label>@CELTLabels:ReportingFlow</Label>
+	<UseEnumValue>No</UseEnumValue>
+	<EnumValues>
+		<AxEnumValue>
+			<Name>EInvoicing</Name>
+			<Label>@CELTLabels:FlowEInvoicing</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>B2BInternational</Name>
+			<Label>@CELTLabels:FlowB2BInternational</Label>
+			<Value>1</Value>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>B2C</Name>
+			<Label>@CELTLabels:FlowB2C</Label>
+			<Value>2</Value>
+		</AxEnumValue>
+	</EnumValues>
+	<IsExtensible>false</IsExtensible>
+</AxEnum>

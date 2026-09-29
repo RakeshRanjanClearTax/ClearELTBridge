@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTConfirmPaymentDialog</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+/// <summary>
+/// Confirm-payment dialog (Clear France API v4.1 - 6.8/8.4): collection date, reporting flow and
+/// one line per VAT rate, pre-filled with what is still outstanding. The split lines are the
+/// caller's shared in-memory buffer - edits land directly in it. B2C is never derived; the user
+/// selects it here, where the derived flow is only the starting point.
+/// </summary>
+[Form]
+public class CELTConfirmPaymentDialog extends FormRun
+{
+    CELTReportingFlow selectedFlow;
+    TransDate         selectedDate;
+    boolean           eReportingEnabled;
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>run</Name>
+				<Source><![CDATA[
+    public void run()
+    {
+        super();
+
+        CELTPaymentVatSplitTmp none;
+
+        CollectionDateCtrl.dateValue(DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone()));
+        element.updateTotal(none);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setSplitData</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Shares the caller's in-memory split lines with the form datasource. Call between init()
+    /// and run().
+    /// </summary>
+    /// <param name = "_splitTmp">pre-filled split buffer</param>
+    public void setSplitData(CELTPaymentVatSplitTmp _splitTmp)
+    {
+        CELTPaymentVatSplitTmp.setTmpData(_splitTmp);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setDefaults</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Applies the derived reporting flow as the starting point. The flow selector is editable
+    /// only when the e-reporting capability is on.
+    /// </summary>
+    /// <param name = "_defaultFlow">derived flow</param>
+    /// <param name = "_eReportingEnabled">e-reporting capability</param>
+    public void setDefaults(CELTReportingFlow _defaultFlow, boolean _eReportingEnabled)
+    {
+        eReportingEnabled = _eReportingEnabled;
+
+        ReportingFlowCtrl.selection(_defaultFlow);
+        ReportingFlowCtrl.enabled(_eReportingEnabled);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>updateTotal</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Recomputes the running total, using the in-memory buffer for the row being edited - the
+    /// datasource has not written it yet when the field's modified() fires.
+    /// </summary>
+    /// <param name = "_current">the row being edited, or null</param>
+    public void updateTotal(CELTPaymentVatSplitTmp _current)
+    {
+        CELTPaymentVatSplitTmp splitTmp;
+        real                   total;
+
+        splitTmp.setTmpData(CELTPaymentVatSplitTmp);
+
+        while select splitTmp
+        {
+            if (_current.RecId != 0 && splitTmp.RecId == _current.RecId)
+            {
+                total += _current.AmountToReport;
+            }
+            else
+            {
+                total += splitTmp.AmountToReport;
+            }
+        }
+
+        TotalCtrl.realValue(total);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>okClicked</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Validates and closes: a collection date is mandatory for the e-reporting flows (8.4), and
+    /// at least one line must carry an amount.
+    /// </summary>
+    public void okClicked()
+    {
+        CELTPaymentVatSplitTmp splitTmp;
+        boolean                anyAmount;
+
+        CELTPaymentVatSplitTmp_ds.write();
+
+        selectedFlow = ReportingFlowCtrl.selection();
+        selectedDate = CollectionDateCtrl.dateValue();
+
+        if (selectedFlow != CELTReportingFlow::EInvoicing && selectedDate == dateNull())
+        {
+            warning("@CELTLabels:LcNoCollectionDate");
+            return;
+        }
+
+        splitTmp.setTmpData(CELTPaymentVatSplitTmp);
+        while select splitTmp
+        {
+            if (splitTmp.AmountToReport != 0)
+            {
+                anyAmount = true;
+                break;
+            }
+        }
+
+        if (!anyAmount)
+        {
+            warning("@CELTLabels:LcNoAmounts");
+            return;
+        }
+
+        element.closeOk();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmReportingFlow</Name>
+				<Source><![CDATA[
+    public CELTReportingFlow parmReportingFlow()
+    {
+        return selectedFlow;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmCollectionDate</Name>
+				<Source><![CDATA[
+    public TransDate parmCollectionDate()
+    {
+        return selectedDate;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="">
+			<Control>
+				<Name>Grid_AmountToReport</Name>
+				<Type>Real</Type>
+				<Methods>
+					<Method>
+						<Name>modified</Name>
+						<Source><![CDATA[
+        /// <summary>
+        /// The total must move while typing: recompute from the in-memory row, because the
+        /// datasource writes the edited value only on row change.
+        /// </summary>
+        public boolean modified()
+        {
+            boolean ret = super();
+
+            element.updateTotal(CELTPaymentVatSplitTmp);
+
+            return ret;
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+			<Control>
+				<Name>OKButton</Name>
+				<Type>Button</Type>
+				<Methods>
+					<Method>
+						<Name>clicked</Name>
+						<Source><![CDATA[
+        public void clicked()
+        {
+            super();
+            element.okClicked();
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+			<Control>
+				<Name>CancelButton</Name>
+				<Type>Button</Type>
+				<Methods>
+					<Method>
+						<Name>clicked</Name>
+						<Source><![CDATA[
+        public void clicked()
+        {
+            super();
+            element.closeCancel();
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+		</DataControls>
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CELTPaymentVatSplitTmp</Name>
+			<Table>CELTPaymentVatSplitTmp</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:LcConfirmPayment</Caption>
+		<Style xmlns="">Dialog</Style>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>HeaderGroup</Name>
+				<Type>Group</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>CollectionDateCtrl</Name>
+						<AutoDeclaration>Yes</AutoDeclaration>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Label>@CELTLabels:CollectionDate</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>ReportingFlowCtrl</Name>
+						<AutoDeclaration>Yes</AutoDeclaration>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<EnumType>CELTReportingFlow</EnumType>
+						<Label>@CELTLabels:ReportingFlow</Label>
+						<Items />
+					</AxFormControl>
+				</Controls>
+				<FrameType>None</FrameType>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>SplitGrid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_Rate</Name>
+						<AllowEdit>No</AllowEdit>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>Rate</DataField>
+						<DataSource>CELTPaymentVatSplitTmp</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_InvoiceAmount</Name>
+						<AllowEdit>No</AllowEdit>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceAmount</DataField>
+						<DataSource>CELTPaymentVatSplitTmp</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_OutstandingAmount</Name>
+						<AllowEdit>No</AllowEdit>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>OutstandingAmount</DataField>
+						<DataSource>CELTPaymentVatSplitTmp</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_AmountToReport</Name>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>AmountToReport</DataField>
+						<DataSource>CELTPaymentVatSplitTmp</DataSource>
+					</AxFormControl>
+				</Controls>
+				<DataSource>CELTPaymentVatSplitTmp</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>TotalGroup</Name>
+				<Type>Group</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>TotalCtrl</Name>
+						<AllowEdit>No</AllowEdit>
+						<AutoDeclaration>Yes</AutoDeclaration>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Label>@CELTLabels:LcTotalToReport</Label>
+					</AxFormControl>
+				</Controls>
+				<FrameType>None</FrameType>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormButtonGroupControl">
+				<Name>ButtonGroupCtrl</Name>
+				<Type>ButtonGroup</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonControl">
+						<Name>OKButton</Name>
+						<Type>Button</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DefaultButton>Yes</DefaultButton>
+						<Text>@CELTLabels:LcOK</Text>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonControl">
+						<Name>CancelButton</Name>
+						<Type>Button</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Text>@CELTLabels:LcCancel</Text>
+					</AxFormControl>
+				</Controls>
+				<ArrangeMethod>HorizontalRight</ArrangeMethod>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

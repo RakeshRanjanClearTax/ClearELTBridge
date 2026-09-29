@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTDocumentPdfService</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Get document PDF (Clear API): GET {Document print URL}?document-number=..&amp;
+/// document-date=..&amp;einvoice-type=..&amp;document-type=..&amp;taxpayer-identifier=.. with the
+/// x-cleartax-auth-token / x-clear-country-code headers plus a country-specific seller identity
+/// header, downloading the PDF the backend rendered for the selected posted invoice. Identifier
+/// resolution is shared with the lifecycle actions (seller VAT from the legal entity's
+/// registration IDs). France sends x-clear-siren (the legal entity's SIREN); UAE (and other
+/// non-France sellers) send x-clear-tin, the first 10 characters of the seller's VAT/TRN.
+/// </summary>
+internal final class CELTDocumentPdfService
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point: downloads the PDF for the selected posted invoice. Sales and project
+    /// invoices print as the SALES flow; vendor invoices are self-billed purchase documents, so they
+    /// print as the PURCHASE flow. The journal's stamped Clear identifiers travel along, so the print
+    /// call addresses the exact document rather than an invoice number.
+    /// </summary>
+    /// <param name = "_args">menu args (record required)</param>
+    public static void main(Args _args)
+    {
+        CELTDocumentPdfService service = new CELTDocumentPdfService();
+        CustInvoiceJour        custJour;
+        ProjInvoiceJour        projJour;
+        VendInvoiceJour        vendJour;
+
+        if (_args == null || _args.record() == null)
+        {
+            throw error("@CELTLabels:LcNoRecord");
+        }
+
+        switch (_args.dataset())
+        {
+            case tableNum(CustInvoiceJour):
+                custJour = _args.record() as CustInvoiceJour;
+                service.getDocumentPdf(custJour.InvoiceId,
+                    CELTConstants::FlowSales, custJour.CELTUniqueId, custJour.CELTDocumentId);
+                break;
+
+            case tableNum(ProjInvoiceJour):
+                projJour = _args.record() as ProjInvoiceJour;
+                service.getDocumentPdf(projJour.ProjInvoiceId,
+                    CELTConstants::FlowSales, projJour.CELTUniqueId, projJour.CELTDocumentId);
+                break;
+
+            case tableNum(VendInvoiceJour):
+                vendJour = _args.record() as VendInvoiceJour;
+                service.getDocumentPdf(vendJour.InvoiceId,
+                    CELTConstants::FlowPurchase, vendJour.CELTUniqueId, vendJour.CELTDocumentId);
+                break;
+
+            default:
+                throw error("@CELTLabels:LcNoRecord");
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getDocumentPdf</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Downloads the printed PDF for one document and hands it to the browser. Every attempt lands
+    /// in the Clear ELT log (request type Get document PDF). Every country uses Clear's simple
+    /// print contract - the document is addressed by its Clear id alone:
+    /// ?document-id=...&einvoice-type=SALES|PURCHASE. Only the seller identity headers differ:
+    /// France sends x-clear-siren, everyone else x-clear-tin.
+    /// </summary>
+    /// <param name = "_invoiceId">the posted invoice number (log context, file name, lookup fallback)</param>
+    /// <param name = "_flow">einvoice-type: SALES for sales and project invoices, PURCHASE for vendor
+    /// (self-billed) invoices</param>
+    /// <param name = "_uniqueId">the journal's stamped Clear UniqueId - reads the writeback row exactly</param>
+    /// <param name = "_documentId">the journal's stamped Clear document id, when it has one</param>
+    public void getDocumentPdf(
+        str _invoiceId,
+        str _flow       = CELTConstants::FlowSales,
+        str _uniqueId   = '',
+        str _documentId = '')
+    {
+        CELTParameters                parameter = CELTParameters::find();
+        CELTLogger                    logger    = new CELTLogger();
+        CELTApiClient                 apiClient = new CELTApiClient(logger);
+        CELTLifecycleActionService    lifecycle = new CELTLifecycleActionService();
+        ClearTaxEInvoiceResponseTable writeback;
+        str                           url, taxpayerId, countryCode, documentId;
+
+        // Log lines written while this download runs carry the invoice number, so the invoice
+        // lists can open the exact log trail for one selected invoice.
+        CELTLogger::documentId(_invoiceId);
+
+        try
+        {
+            if (parameter.DocumentPrintURL == '')
+            {
+                throw error("@CELTLabels:PdfNoUrl");
+            }
+
+            // The Clear document id: the journal's own stamp first, then the writeback matched on
+            // the stamped UniqueId - an invoice number identifies no document reliably (vendor
+            // numbers repeat across vendors and share the column with customer invoices) - with the
+            // newest row for the number only as a fallback for documents stamped before identifiers
+            // existed. Without an id there is nothing to print - never guess.
+            documentId = _documentId;
+
+            if (documentId == '' && _uniqueId != '')
+            {
+                select firstonly DocumentId from writeback
+                    where writeback.UniqueId == _uniqueId;
+                documentId = writeback.DocumentId;
+            }
+
+            if (documentId == '')
+            {
+                select firstonly DocumentId from writeback
+                    order by CreatedDateTime desc, RecId desc
+                    where writeback.InvoiceId == _invoiceId;
+                documentId = writeback.DocumentId;
+            }
+
+            if (documentId == '')
+            {
+                throw error(strFmt("@CELTLabels:PdfNoDocumentId", _invoiceId));
+            }
+
+            url = parameter.DocumentPrintURL
+                + '?document-id='   + System.Uri::EscapeDataString(documentId)
+                + '&einvoice-type=' + _flow;
+
+            // Same auth header family as the lifecycle API: x-cleartax-auth-token, explicitly set.
+            apiClient.initialize(CELTAPIRequestType::DocumentPdf);
+            apiClient.suppressAuthToken();
+            apiClient.setURL(url);
+            apiClient.setMethod(CELTAPIMethodType::GET);
+            apiClient.setContentType(CELTConstants::application_json);
+            apiClient.addHeader(CELTConstants::x_cleartax_auth_token_lc, CELTParameters::getAuthToken());
+
+            // Seller identity header is country-specific: France identifies the seller by SIREN and
+            // sends the country code as-is (FR); everyone else sends x-clear-tin (first 10 of the
+            // VAT/TRN) with the country code lower-cased, matching Clear's MEA print sample ('ae').
+            countryCode = lifecycle.sellerCountryIsoCode();
+
+            if (strUpr(countryCode) == CELTConstants::DefaultLifecycleCountry)
+            {
+                apiClient.addHeader(CELTConstants::x_clear_country_code, countryCode);
+                apiClient.addHeader(CELTConstants::x_clear_siren, lifecycle.companySiren());
+            }
+            else
+            {
+                taxpayerId = lifecycle.salesTaxpayerIdentifier();
+                apiClient.addHeader(CELTConstants::x_clear_country_code, strLwr(countryCode));
+                apiClient.addHeader(CELTConstants::x_clear_tin,
+                    strLen(taxpayerId) > 10 ? subStr(taxpayerId, 1, 10) : taxpayerId);
+            }
+
+            apiClient.sendRequest();
+
+            if (!apiClient.isSuccess())
+            {
+                throw error(strFmt("@CELTLabels:PdfFailed", apiClient.getResponseStatus()));
+            }
+
+            File::SendFileToUser(apiClient.getResponseStream(), _invoiceId + '.pdf');
+            info(strFmt("@CELTLabels:PdfDownloaded", _invoiceId));
+        }
+        finally
+        {
+            CELTLogger::documentId('');
+        }
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

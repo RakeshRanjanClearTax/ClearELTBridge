@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxEnum xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTAERcmType</Name>
+	<Label>@CELTLabels:AERcmType</Label>
+	<UseEnumValue>No</UseEnumValue>
+	<EnumValues>
+		<AxEnumValue>
+			<Name>None</Name>
+			<Label>@CELTLabels:None</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>CrudeRefinedOil</Name>
+			<Label>@CELTLabels:RcmCrudeRefinedOil</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>NaturalGas</Name>
+			<Label>@CELTLabels:RcmNaturalGas</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>PureHydrocarbons</Name>
+			<Label>@CELTLabels:RcmPureHydrocarbons</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>GoldAndDiamonds</Name>
+			<Label>@CELTLabels:RcmGoldAndDiamonds</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>ElectronicDevices</Name>
+			<Label>@CELTLabels:RcmElectronicDevices</Label>
+		</AxEnumValue>
+	</EnumValues>
+	<IsExtensible>true</IsExtensible>
+</AxEnum>

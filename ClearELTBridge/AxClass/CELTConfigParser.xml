@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTConfigParser</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Manual config runner (Setup > Parse query config): paste any Clear JSON and it dispatches on
+/// shape - a writeback payload (insertTable at the root or under postingInfo) is applied to the
+/// ERP through CELTPostingService, an extraction config (queryConfig/tables) runs through
+/// CELTQueryBuilder + CELTExtractor and the produced data.zip is downloaded to the browser.
+/// Interactive-only utility for testing configs without involving the backend.
+/// </summary>
+internal final class CELTConfigParser
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Shows the config dialog and runs the pasted JSON.
+    /// </summary>
+    /// <param name = "_args">unused</param>
+    public static void main(Args _args)
+    {
+        Dialog      dialog      = new Dialog("@CELTLabels:ParseQueryConfig");
+        DialogField configField = dialog.addField(extendedTypeStr(Notes), "@CELTLabels:ConfigFile");
+
+        if (!dialog.run())
+        {
+            return;
+        }
+
+        str configJson = strLRTrim(configField.value());
+
+        if (configJson == '')
+        {
+            throw error("@CELTLabels:ConfigParseEmpty");
+        }
+
+        CELTConfigParser::process(configJson);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>process</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Dispatches one pasted JSON document: writeback payloads land in the ERP tables,
+    /// extraction configs produce a downloadable data.zip.
+    /// </summary>
+    /// <param name = "_configJson">the pasted JSON</param>
+    private static void process(str _configJson)
+    {
+        CELTLogger                   logger = new CELTLogger();
+        Newtonsoft.Json.Linq.JObject root;
+        System.Exception             ex;
+
+        CELTLogger::commandId('');
+
+        try
+        {
+            root = Newtonsoft.Json.Linq.JObject::Parse(_configJson);
+        }
+        catch (ex)
+        {
+            throw error(strFmt("@CELTLabels:ConfigParseInvalidJson", ex.Message));
+        }
+
+        Newtonsoft.Json.Linq.JObject postingInfo = root.get_Item('postingInfo') as Newtonsoft.Json.Linq.JObject;
+
+        boolean isWriteback = (root.get_Item(CELTConstants::wInsertTable) != null)
+            || (postingInfo != null && postingInfo.get_Item(CELTConstants::wInsertTable) != null);
+
+        if (isWriteback)
+        {
+            CELTPostingService postingService = new CELTPostingService(logger);
+
+            // Interactive session: lenient company handling, same as the sync flow.
+            if (postingService.parseWriteBack(_configJson))
+            {
+                info("@CELTLabels:ConfigParseWritebackDone");
+            }
+            else
+            {
+                error("@CELTLabels:ConfigParseWritebackFailed");
+            }
+            return;
+        }
+
+        CELTQueryBuilder builder   = new CELTQueryBuilder(logger);
+        CELTExtractor    extractor = new CELTExtractor(logger);
+
+        if (!builder.build(_configJson))
+        {
+            throw error("@CELTLabels:ConfigParseBuildFailed");
+        }
+
+        if (!extractor.execute(builder))
+        {
+            throw error("@CELTLabels:ConfigParseExtractFailed");
+        }
+
+        File::SendFileToUser(extractor.getOutputStream(), 'CELTConfigParser_data.zip');
+        info("@CELTLabels:ConfigParseExtractDone");
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

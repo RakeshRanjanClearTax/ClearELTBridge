@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTS3Uploader</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// PUTs the extracted data.zip to the S3 pre-signed URL. Byte-compatible with ELTS3Uploader:
+/// PUT, content type application/zip, x-erp-instance-id header, raw stream body.
+/// </summary>
+internal class CELTS3Uploader
+{
+    private CELTApiClient   apiClient;
+    private CELTLogger      logger;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new(CELTLogger _logger = new CELTLogger(), CELTApiClient _apiClient = null)
+    {
+        logger    = _logger;
+        apiClient = _apiClient ? _apiClient : new CELTApiClient(_logger);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>uploadToS3</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Uploads the stream to the pre-signed URL.
+    /// </summary>
+    /// <param name = "_presignedURL">full S3 pre-signed URL</param>
+    /// <param name = "_input">zip stream</param>
+    /// <returns>true on success</returns>
+    public boolean uploadToS3(str _presignedURL, System.IO.Stream _input)
+    {
+        CELTParameters parameter = CELTParameters::find();
+
+        apiClient.initialize(CELTAPIRequestType::UploadToS3);
+        apiClient.setURL(_presignedURL);
+        apiClient.setMethod(CELTAPIMethodType::PUT);
+        apiClient.setContentType(CELTConstants::application_zip);
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.setRequestStream(_input);
+        apiClient.sendRequest();
+
+        return apiClient.isSuccess();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>uploadSync</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Synchronous (on-demand) upload for the e-invoice flow: POST the zip to the fixed sync URL
+    /// (CELTParameters.PresignedURLSync) with the command id as x-idempotency-key. The HTTP
+    /// response body is the writeback JSON, retrievable via getResponseBody(). Mirrors the original
+    /// ELTS3UploaderSync.
+    /// </summary>
+    /// <param name = "_syncURL">CELTParameters.PresignedURLSync</param>
+    /// <param name = "_input">zip stream</param>
+    /// <param name = "_commandId">command id (idempotency key)</param>
+    /// <returns>true on success</returns>
+    public boolean uploadSync(str _syncURL, System.IO.Stream _input, str _commandId)
+    {
+        CELTParameters parameter = CELTParameters::find();
+
+        apiClient.initialize(CELTAPIRequestType::PresignedURLSync);
+        apiClient.setURL(_syncURL);
+        apiClient.setMethod(CELTAPIMethodType::POST);
+        apiClient.setContentType(CELTConstants::application_zip);
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.addHeader(CELTConstants::x_idempotency_key, _commandId);
+        apiClient.setRequestStream(_input);
+        apiClient.sendRequest();
+
+        return apiClient.isSuccess();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getResponseBody</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The last upload's response body (the sync writeback JSON).
+    /// </summary>
+    /// <returns>response text</returns>
+    public str getResponseBody()
+    {
+        return apiClient.getResponseBody();
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTIntegrationContract</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Dialog contract for the Clear ELT integration batch: which posted invoices to generate e-invoices
+/// for (sales or purchase), the invoice-date window and an optional invoice account. The default
+/// (None) keeps the job to its original behaviour - processing pending Clear commands only - so
+/// existing scheduled jobs are unchanged. A From date is mandatory once a document type is chosen, so
+/// a blank dialog can never sweep the whole invoice history into the tax platform.
+/// </summary>
+[DataContract]
+internal final class CELTIntegrationContract extends SysOperationDataContractBase implements SysOperationValidatable
+{
+    CELTIntegrationDocumentType documentType;
+    TransDate                   fromDate;
+    TransDate                   toDate;
+    CustAccount                 custAccount;
+    VendAccount                 vendAccount;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>parmDocumentType</Name>
+				<Source><![CDATA[
+    [DataMember,
+     SysOperationLabel(literalStr("@CELTLabels:IntegrationDocumentType")),
+     SysOperationHelpText(literalStr("@CELTLabels:IntegrationDocumentTypeHelp")),
+     SysOperationDisplayOrder('1')]
+    public CELTIntegrationDocumentType parmDocumentType(CELTIntegrationDocumentType _documentType = documentType)
+    {
+        documentType = _documentType;
+        return documentType;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmFromDate</Name>
+				<Source><![CDATA[
+    [DataMember,
+     SysOperationLabel(literalStr("@CELTLabels:IntegrationFromDate")),
+     SysOperationHelpText(literalStr("@CELTLabels:IntegrationDateHelp")),
+     SysOperationDisplayOrder('2')]
+    public TransDate parmFromDate(TransDate _fromDate = fromDate)
+    {
+        fromDate = _fromDate;
+        return fromDate;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmToDate</Name>
+				<Source><![CDATA[
+    [DataMember,
+     SysOperationLabel(literalStr("@CELTLabels:IntegrationToDate")),
+     SysOperationHelpText(literalStr("@CELTLabels:IntegrationDateHelp")),
+     SysOperationDisplayOrder('3')]
+    public TransDate parmToDate(TransDate _toDate = toDate)
+    {
+        toDate = _toDate;
+        return toDate;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmCustAccount</Name>
+				<Source><![CDATA[
+    [DataMember,
+     SysOperationLabel(literalStr("@CELTLabels:IntegrationCustAccount")),
+     SysOperationHelpText(literalStr("@CELTLabels:IntegrationCustAccountHelp")),
+     SysOperationDisplayOrder('4')]
+    public CustAccount parmCustAccount(CustAccount _custAccount = custAccount)
+    {
+        custAccount = _custAccount;
+        return custAccount;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmVendAccount</Name>
+				<Source><![CDATA[
+    [DataMember,
+     SysOperationLabel(literalStr("@CELTLabels:IntegrationVendAccount")),
+     SysOperationHelpText(literalStr("@CELTLabels:IntegrationVendAccountHelp")),
+     SysOperationDisplayOrder('5')]
+    public VendAccount parmVendAccount(VendAccount _vendAccount = vendAccount)
+    {
+        vendAccount = _vendAccount;
+        return vendAccount;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>validate</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Dialog validation: a chosen document type needs a From date (no unbounded history sweep), and
+    /// the date window must not be inverted.
+    /// </summary>
+    /// <returns>true when the parameters are consistent</returns>
+    public boolean validate()
+    {
+        boolean ok = true;
+
+        if (documentType != CELTIntegrationDocumentType::None && !fromDate)
+        {
+            ok = checkFailed("@CELTLabels:IntegrationFromDateRequired");
+        }
+
+        if (fromDate && toDate && toDate < fromDate)
+        {
+            ok = checkFailed("@CELTLabels:IntegrationDateOrder");
+        }
+
+        return ok;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

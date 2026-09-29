@@ -1,0 +1,1203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTQueryBuilder</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Builds classic Query objects from the ERP extraction config, replacing the old SysDa engine.
+/// Supports two schemas, detected at runtime:
+///  1. Simplified (handoff 6.3): { table, fields[], ranges[{field,value}],
+///     joins[{table,mode,links[{from,to}],fields[]}], orderBy[{field,direction}] }.
+///  2. Legacy ClearELT (production): { queryConfig: { tables: [ ... ] } } (or a top-level tables[]).
+///     Each table has fromTable{name,alias}, select[], where[], order_by[] and an optional fae
+///     (parent alias). Joins are NOT listed explicitly - a child's where holds 'reference_column'
+///     expressions that pair the child's columns to the parent's, and fae names that parent.
+///     Each table becomes one output file; a child is scoped to its ancestors with exists-joins
+///     built from those reference_column links, and each ancestor's own filters are applied.
+/// Queries are cross-company (a DataAreaId filter in the config scopes them to one company).
+/// </summary>
+internal class CELTQueryBuilder
+{
+    private CELTLogger  logger;
+
+    // Finished plans, indexed 0..planCount-1
+    private Map         planQueries;    // int -> Query
+    private Map         planNames;      // int -> str  (output file name)
+    private Map         planFields;     // int -> Map(datasource name -> List<fieldName>)
+    private Map         planCompanies;  // int -> str  (DataAreaId to run the plan under)
+    private int         planCount;
+
+    // Legacy: all table entries indexed by fromTable.alias (for ancestor resolution)
+    private Map         tableIndex;     // str alias -> JObject entry
+
+    // Per-plan working state
+    private Query       query;
+    private Map         fieldsByTable;  // datasource name -> List<str> (fields to emit; absent = all)
+    private Map         aliasQbds;      // alias -> QueryBuildDataSource
+    private Map         aliasTableId;   // alias -> tableId
+    private Map         clearedTables;  // datasource name -> 1 once its field list is cleared
+    private int         dsCounter;      // per-plan datasource counter, see nameDataSource
+    private QueryBuildDataSource primaryQbds;
+    private TableId     primaryTableId;
+    private str         primaryAlias;
+    private str         planCompany;    // DataAreaId captured from this plan's filters
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new(CELTLogger _logger = new CELTLogger())
+    {
+        logger      = _logger;
+        planQueries   = new Map(Types::Integer, Types::Class);
+        planNames     = new Map(Types::Integer, Types::String);
+        planFields    = new Map(Types::Integer, Types::Class);
+        planCompanies = new Map(Types::Integer, Types::String);
+        tableIndex    = new Map(Types::String, Types::Class);
+        planCount     = 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>build</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Parses the config and builds one plan (output file) per top-level table.
+    /// </summary>
+    /// <param name = "_configJson">ERP config JSON from the command</param>
+    /// <returns>true when at least one query plan was built</returns>
+    public boolean build(str _configJson)
+    {
+        if (_configJson == '')
+        {
+            logger.logErrorMessage(
+                classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, build),
+                'Empty configuration.');
+            return false;
+        }
+
+        logger.logInfoMessage(
+            classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, build),
+            strFmt('Building query from config (top-level keys: %1)', this.topLevelKeys(_configJson)),
+            _configJson);
+
+        Newtonsoft.Json.Linq.JObject root = Newtonsoft.Json.Linq.JObject::Parse(_configJson);
+
+        // Simplified single-table object.
+        if (root.get_Item(CELTConstants::cfgTable) != null)
+        {
+            this.buildSimplifiedPlan(root);
+            return planCount > 0;
+        }
+
+        Newtonsoft.Json.Linq.JArray tablesArr = this.findTablesArray(root);
+
+        if (tablesArr == null)
+        {
+            if (root.get_Item('fromTable') != null)
+            {
+                this.indexTableEntry(root);
+                this.buildLegacyPlan(root);
+                return planCount > 0;
+            }
+
+            logger.logErrorMessage(
+                classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, build),
+                strFmt("@CELTLabels:QueryConfigSchemaUnrecognised",
+                    this.topLevelKeys(_configJson)),
+                _configJson);
+            return false;
+        }
+
+        // Index every legacy table entry by alias first so children can resolve their ancestors.
+        int i;
+        for (i = 0; i < tablesArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject entry = tablesArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (entry != null && entry.get_Item('fromTable') != null)
+            {
+                this.indexTableEntry(entry);
+            }
+        }
+
+        // Build a plan per entry.
+        for (i = 0; i < tablesArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject entry = tablesArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (entry == null)
+            {
+                continue;
+            }
+
+            if (entry.get_Item(CELTConstants::cfgTable) != null)
+            {
+                this.buildSimplifiedPlan(entry);
+            }
+            else if (entry.get_Item('fromTable') != null)
+            {
+                this.buildLegacyPlan(entry);
+            }
+            else
+            {
+                logger.logWarningMessage(
+                    classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, build),
+                    strFmt('Skipping table entry %1 (no table/fromTable).', i));
+            }
+        }
+
+        logger.logInfoMessage(
+            classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, build),
+            strFmt('Built %1 query plan(s).', planCount));
+
+        return planCount > 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>findTablesArray</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Locates the tables array under queryConfig.tables, or a top-level tables[].
+    /// </summary>
+    private Newtonsoft.Json.Linq.JArray findTablesArray(Newtonsoft.Json.Linq.JObject _root)
+    {
+        Newtonsoft.Json.Linq.JObject queryConfig = _root.get_Item('queryConfig') as Newtonsoft.Json.Linq.JObject;
+        if (queryConfig != null)
+        {
+            Newtonsoft.Json.Linq.JArray qcTables = queryConfig.get_Item('tables') as Newtonsoft.Json.Linq.JArray;
+            if (qcTables != null)
+            {
+                return qcTables;
+            }
+        }
+
+        return _root.get_Item('tables') as Newtonsoft.Json.Linq.JArray;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>indexTableEntry</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Registers a legacy table entry under its fromTable.alias for ancestor resolution.
+    /// </summary>
+    private void indexTableEntry(Newtonsoft.Json.Linq.JObject _entry)
+    {
+        Newtonsoft.Json.Linq.JObject fromTable = _entry.get_Item('fromTable') as Newtonsoft.Json.Linq.JObject;
+        if (fromTable != null)
+        {
+            str alias = this.tokenToStr(fromTable.get_Item('alias'));
+            if (alias != '')
+            {
+                tableIndex.insert(alias, _entry);
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>resetPlan</Name>
+				<Source><![CDATA[
+    private void resetPlan()
+    {
+        // No allowCrossCompany: cross-company queries forbid data-source-level filtering and value
+        // expressions. Instead each plan runs inside changecompany(planCompany) - see CELTExtractor.
+        query           = new Query();
+        fieldsByTable   = new Map(Types::String, Types::Class);
+        aliasQbds       = new Map(Types::String, Types::Class);
+        aliasTableId    = new Map(Types::String, Types::Integer);
+        clearedTables   = new Map(Types::String, Types::Integer);
+        primaryQbds     = null;
+        primaryTableId  = 0;
+        primaryAlias    = '';
+        planCompany     = '';
+        dsCounter       = 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addPlan</Name>
+				<Source><![CDATA[
+    private void addPlan(str _outputName)
+    {
+        planQueries.insert(planCount, query);
+        planNames.insert(planCount, _outputName);
+        planFields.insert(planCount, fieldsByTable);
+        planCompanies.insert(planCount, planCompany);
+        planCount++;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>buildLegacyPlan</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds a plan for one legacy table entry, scoped to its ancestors via exists-joins.
+    /// </summary>
+    private void buildLegacyPlan(Newtonsoft.Json.Linq.JObject _entry)
+    {
+        this.resetPlan();
+
+        Newtonsoft.Json.Linq.JObject fromTable = _entry.get_Item('fromTable') as Newtonsoft.Json.Linq.JObject;
+        str     tableName = this.tokenToStr(fromTable.get_Item('name'));
+        str     alias     = this.tokenToStr(fromTable.get_Item('alias'));
+        TableId tableId   = tableName2Id(tableName);
+
+        if (tableId == 0)
+        {
+            logger.logErrorMessage(
+                classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, buildLegacyPlan),
+                strFmt("@CELTLabels:QueryUnknownFromTable", tableName),
+                _entry.ToString());
+            return;
+        }
+
+        primaryTableId  = tableId;
+        primaryAlias    = alias;
+        primaryQbds     = query.addDataSource(tableId);
+        this.nameDataSource(primaryQbds);
+
+        aliasQbds.insert(alias, primaryQbds);
+        aliasTableId.insert(alias, tableId);
+        this.ensureFieldList(primaryQbds);
+
+        str outputName = this.tokenToStr(_entry.get_Item('name'));
+        if (outputName == '')
+        {
+            outputName = alias != '' ? alias : tableName;
+        }
+
+        // Own filters (non reference_column expressions).
+        this.applyFilters(primaryQbds, tableId, _entry.get_Item('where'));
+
+        // Ancestor scoping via reference_column links (recursively up the fae chain).
+        this.addAncestorJoins(primaryQbds, tableId, _entry);
+
+        // Emitted fields and sort.
+        this.applyLegacySelect(_entry.get_Item('select'));
+        this.applyLegacyOrderBy(_entry.get_Item('order_by'));
+
+        if (query.dataSourceCount() > 0)
+        {
+            this.addPlan(outputName);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addAncestorJoins</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Adds exists-joins to the parent(s) referenced by this entry's reference_column expressions,
+    /// applies each parent's own filters, and recurses up the ancestor chain.
+    /// </summary>
+    private void addAncestorJoins(QueryBuildDataSource _childQbds, TableId _childTableId, Newtonsoft.Json.Linq.JObject _entry)
+    {
+        // Collect reference_column links grouped by parent alias.
+        Map parentLinks = new Map(Types::String, Types::Class);   // parentAlias -> List<container [childField, parentField, isOr]>
+        this.collectRefLinks(_entry.get_Item('where'), parentLinks, false);
+
+        MapEnumerator me = parentLinks.getEnumerator();
+        while (me.moveNext())
+        {
+            str  parentAlias = me.currentKey();
+            List links       = me.currentValue();
+
+            if (!tableIndex.exists(parentAlias))
+            {
+                logger.logWarningMessage(
+                    classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, addAncestorJoins),
+                    strFmt('Parent alias %1 referenced but not found in config; join skipped.', parentAlias));
+                continue;
+            }
+
+            Newtonsoft.Json.Linq.JObject parentEntry = tableIndex.lookup(parentAlias);
+            Newtonsoft.Json.Linq.JObject parentFrom  = parentEntry.get_Item('fromTable') as Newtonsoft.Json.Linq.JObject;
+            str     parentTable   = this.tokenToStr(parentFrom.get_Item('name'));
+            TableId parentTableId = tableName2Id(parentTable);
+
+            if (parentTableId == 0)
+            {
+                logger.logWarningMessage(
+                    classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, addAncestorJoins),
+                    strFmt('Parent table %1 is not a physical AOT table; join skipped.', parentTable));
+                continue;
+            }
+
+            QueryBuildDataSource parentQbds = _childQbds.addDataSource(parentTableId);
+            this.nameDataSource(parentQbds);
+            parentQbds.joinMode(JoinMode::ExistsJoin);
+            parentQbds.relations(false);
+
+            aliasQbds.insert(parentAlias, parentQbds);
+            aliasTableId.insert(parentAlias, parentTableId);
+            this.ensureFieldList(parentQbds);      // present + empty => join-only, no fields emitted
+
+            // AND-ed links become addLink; OR-ed links are collected for a value expression.
+            List orLinks = new List(Types::Container);
+
+            ListEnumerator le = links.getEnumerator();
+            while (le.moveNext())
+            {
+                container link        = le.current();
+                str       childField  = conPeek(link, 1);
+                str       parentField = conPeek(link, 2);
+                boolean   isOr        = conPeek(link, 3) == 1;
+
+                if (isOr)
+                {
+                    orLinks.addEnd(link);
+                    continue;
+                }
+
+                FieldId childFieldId  = fieldName2Id(_childTableId, childField);
+                FieldId parentFieldId = fieldName2Id(parentTableId, parentField);
+
+                if (childFieldId != 0 && parentFieldId != 0)
+                {
+                    parentQbds.addLink(childFieldId, parentFieldId);
+                }
+                else
+                {
+                    logger.logWarningMessage(
+                        classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, addAncestorJoins),
+                        strFmt('Unresolved join link %1 <-> %2 (%3/%4).', childField, parentField, tableId2Name(_childTableId), parentTable));
+                }
+            }
+
+            // OR join predicate: (child.f1 == parent.p1) || (child.f2 == parent.p2) ...
+            if (orLinks.elements() > 0)
+            {
+                this.addOrJoinExpression(_childQbds, parentQbds, parentTableId, orLinks);
+            }
+
+            // Parent's own filters scope the child (e.g. company + date window).
+            this.applyFilters(parentQbds, parentTableId, parentEntry.get_Item('where'));
+
+            // Recurse further up the chain.
+            this.addAncestorJoins(parentQbds, parentTableId, parentEntry);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>collectRefLinks</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Walks a where tree and collects reference_column links grouped by parent alias. Each link is
+    /// a container [childFieldName, parentFieldName, isOr] where isOr is 1 when the link sits under
+    /// an OR node (an OR join predicate) and 0 for a normal AND-ed link.
+    /// </summary>
+    private void collectRefLinks(Newtonsoft.Json.Linq.JToken _whereTok, Map _parentLinks, boolean _underOr)
+    {
+        Newtonsoft.Json.Linq.JArray arr = _whereTok as Newtonsoft.Json.Linq.JArray;
+        if (arr == null)
+        {
+            return;
+        }
+
+        int i;
+        for (i = 0; i < arr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject node = arr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (node == null)
+            {
+                continue;
+            }
+
+            Newtonsoft.Json.Linq.JObject exprObj = node.get_Item('expr') as Newtonsoft.Json.Linq.JObject;
+            if (exprObj != null)
+            {
+                Newtonsoft.Json.Linq.JObject refCol = exprObj.get_Item('reference_column') as Newtonsoft.Json.Linq.JObject;
+                Newtonsoft.Json.Linq.JObject col    = exprObj.get_Item('column') as Newtonsoft.Json.Linq.JObject;
+                if (refCol != null && col != null)
+                {
+                    str childField  = this.tokenToStr(col.get_Item('name'));
+                    str parentAlias = this.tokenToStr(refCol.get_Item('alias'));
+                    str parentField = this.tokenToStr(refCol.get_Item('name'));
+
+                    List links = _parentLinks.exists(parentAlias) ? _parentLinks.lookup(parentAlias) : new List(Types::Container);
+                    links.addEnd([childField, parentField, _underOr ? 1 : 0]);
+                    _parentLinks.insert(parentAlias, links);
+                }
+            }
+
+            boolean childUnderOr = _underOr || (this.tokenToStr(node.get_Item('booleanOperator')) == CELTConstants::OR);
+            this.collectRefLinks(node.get_Item('listOfExpr'), _parentLinks, childUnderOr);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addOrJoinExpression</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Adds an OR join predicate as a query value expression on the exists-join (parent) datasource,
+    /// e.g. ((Child.RECID == Parent.EMAIL) || (Child.RECID == Parent.PHONE)). Valid because each plan
+    /// runs single-company (value expressions are not allowed on cross-company queries).
+    /// </summary>
+    private void addOrJoinExpression(QueryBuildDataSource _childQbds, QueryBuildDataSource _parentQbds, TableId _parentTableId, List _orLinks)
+    {
+        str     childDs  = _childQbds.name();
+        str     parentDs = _parentQbds.name();
+        str     expr     = '(';
+        boolean first    = true;
+        FieldId hangFieldId = 0;
+
+        ListEnumerator le = _orLinks.getEnumerator();
+        while (le.moveNext())
+        {
+            container link        = le.current();
+            str       childField  = conPeek(link, 1);
+            str       parentField = conPeek(link, 2);
+
+            expr += (first ? '' : ' || ') + '(' + childDs + '.' + childField + ' == ' + parentDs + '.' + parentField + ')';
+
+            if (first)
+            {
+                hangFieldId = fieldName2Id(_parentTableId, parentField);
+                first = false;
+            }
+        }
+        expr += ')';
+
+        if (hangFieldId != 0)
+        {
+            _parentQbds.addRange(hangFieldId).value(expr);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applyFilters</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Applies the non-reference_column filter expressions of a where tree onto a datasource,
+    /// combining multiple operators on one field into a single SysQuery range value
+    /// (e.g. &gt;= low and &lt;= high become "low..high").
+    /// </summary>
+    private void applyFilters(QueryBuildDataSource _qbds, TableId _tableId, Newtonsoft.Json.Linq.JToken _whereTok)
+    {
+        Map fieldOps = new Map(Types::String, Types::Container);  // fieldName -> container of [op, value] pairs
+        this.collectFilterOps(_whereTok, _tableId, fieldOps);
+
+        MapEnumerator me = fieldOps.getEnumerator();
+        while (me.moveNext())
+        {
+            str       fieldName = me.currentKey();
+            container ops       = me.currentValue();
+            FieldId   fieldId   = fieldName2Id(_tableId, fieldName);
+
+            if (fieldId == 0)
+            {
+                continue;
+            }
+
+            str rangeValue = this.buildRangeFromOps(ops);
+            if (rangeValue != '')
+            {
+                _qbds.addRange(fieldId).value(rangeValue);
+
+                // Capture the company so the plan can run under changecompany() instead of a
+                // cross-company query (which forbids data-source filtering). A single company code
+                // (no comma/range) is used; multi-company lists fall back to the current company.
+                if (planCompany == ''
+                    && strUpr(fieldName) == 'DATAAREAID'
+                    && strScan(rangeValue, ',', 1, strLen(rangeValue)) == 0
+                    && strScan(rangeValue, CELTConstants::rangeSeparator, 1, strLen(rangeValue)) == 0)
+                {
+                    planCompany = rangeValue;
+                }
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>collectFilterOps</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Recursively collects non-reference leaf expressions whose column belongs to the given table.
+    /// Accumulates (operator, value) pairs per field. Logs a note when an OR group is seen.
+    /// </summary>
+    private void collectFilterOps(Newtonsoft.Json.Linq.JToken _whereTok, TableId _tableId, Map _fieldOps)
+    {
+        Newtonsoft.Json.Linq.JArray arr = _whereTok as Newtonsoft.Json.Linq.JArray;
+        if (arr == null)
+        {
+            return;
+        }
+
+        int i;
+        for (i = 0; i < arr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject node = arr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (node == null)
+            {
+                continue;
+            }
+
+            Newtonsoft.Json.Linq.JObject exprObj = node.get_Item('expr') as Newtonsoft.Json.Linq.JObject;
+            if (exprObj != null && exprObj.get_Item('reference_column') == null)
+            {
+                Newtonsoft.Json.Linq.JObject col = exprObj.get_Item('column') as Newtonsoft.Json.Linq.JObject;
+                if (col != null)
+                {
+                    str fieldName = this.tokenToStr(col.get_Item('name'));
+                    if (fieldName2Id(_tableId, fieldName) != 0)
+                    {
+                        str op  = this.tokenToStr(exprObj.get_Item('operator'));
+                        str val = this.csvValues(exprObj.get_Item('value'));
+
+                        container ops = _fieldOps.exists(fieldName) ? _fieldOps.lookup(fieldName) : conNull();
+                        ops += [op, val];
+                        _fieldOps.insert(fieldName, ops);
+                    }
+                }
+            }
+
+            // OR groups over reference_column links are handled as OR join predicates in
+            // addAncestorJoins; OR over plain filters is uncommon and is not warned here.
+            this.collectFilterOps(node.get_Item('listOfExpr'), _tableId, _fieldOps);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>buildRangeFromOps</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds one SysQuery range value from accumulated (operator, value) pairs on a single field.
+    /// </summary>
+    private str buildRangeFromOps(container _ops)
+    {
+        str  lowVal, highVal, eqVals, otherVal;
+        int  i;
+
+        for (i = 1; i <= conLen(_ops); i += 2)
+        {
+            str op  = conPeek(_ops, i);
+            str val = this.normalizeValue(conPeek(_ops, i + 1));
+
+            switch (op)
+            {
+                case CELTConstants::greaterThanorEqualTo:   // '>='
+                case CELTConstants::greaterThan:            // '>'
+                    lowVal = val;
+                    break;
+                case CELTConstants::lessThanorEqualTo:      // '<='
+                case CELTConstants::lessThan:               // '<'
+                    highVal = val;
+                    break;
+                case CELTConstants::notEqualTo:             // '!='
+                    otherVal = '!' + val;
+                    break;
+                default:                                    // '=', 'like', anything else
+                    eqVals = (eqVals == '') ? val : eqVals + ',' + val;
+                    break;
+            }
+        }
+
+        if (lowVal != '' || highVal != '')
+        {
+            return lowVal + CELTConstants::rangeSeparator + highVal;   // "low..high", "low.." or "..high"
+        }
+        if (eqVals != '')
+        {
+            return eqVals;
+        }
+        return otherVal;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>normalizeValue</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Normalises an ISO datetime value ("2025-08-01T00:00:00[.fff][Z]") into a form SysQuery
+    /// can parse: replaces the 'T' separator with a space and drops a trailing 'Z'.
+    /// </summary>
+    private str normalizeValue(str _value)
+    {
+        str result = _value;
+
+        if (strScan(result, '-', 1, strLen(result)) > 0 && strScan(result, ':', 1, strLen(result)) > 0)
+        {
+            result = strReplace(result, 'T', ' ');
+            if (strEndsWith(result, 'Z'))
+            {
+                result = subStr(result, 1, strLen(result) - 1);
+            }
+        }
+
+        return result;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applyLegacySelect</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Legacy select[]: restrict and record the fields to emit, resolving the datasource by alias.
+    /// </summary>
+    private void applyLegacySelect(Newtonsoft.Json.Linq.JToken _selectTok)
+    {
+        Newtonsoft.Json.Linq.JArray selectArr = _selectTok as Newtonsoft.Json.Linq.JArray;
+        if (selectArr == null)
+        {
+            return;
+        }
+
+        int i;
+        for (i = 0; i < selectArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject selObj = selectArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (selObj == null)
+            {
+                continue;
+            }
+
+            str fieldName = this.tokenToStr(selObj.get_Item('name'));
+            str alias     = this.tokenToStr(selObj.get_Item('alias'));
+
+            TableId              dsTableId = this.resolveTableId(alias);
+            QueryBuildDataSource dsQbds    = this.resolveQbds(alias);
+            FieldId              fieldId   = fieldName2Id(dsTableId, fieldName);
+
+            if (fieldId != 0 && dsQbds)
+            {
+                this.clearFieldsOnce(dsQbds, dsTableId);
+                dsQbds.addSelectionField(fieldId);
+                this.ensureFieldList(dsQbds).addEnd(fieldName);
+            }
+            else
+            {
+                this.warnUnknownField(fieldName, dsTableId);
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applyLegacyOrderBy</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Legacy order_by[]: {column:{name,alias}, order:"Asc"|"Desc"} (case-insensitive direction).
+    /// </summary>
+    private void applyLegacyOrderBy(Newtonsoft.Json.Linq.JToken _orderTok)
+    {
+        Newtonsoft.Json.Linq.JArray orderArr = _orderTok as Newtonsoft.Json.Linq.JArray;
+        if (orderArr == null)
+        {
+            return;
+        }
+
+        int i;
+        for (i = 0; i < orderArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject orderObj = orderArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (orderObj == null)
+            {
+                continue;
+            }
+
+            Newtonsoft.Json.Linq.JObject colObj = orderObj.get_Item('column') as Newtonsoft.Json.Linq.JObject;
+            if (colObj == null)
+            {
+                continue;
+            }
+
+            str fieldName = this.tokenToStr(colObj.get_Item('name'));
+            str alias     = this.tokenToStr(colObj.get_Item('alias'));
+            str orderDir  = strUpr(this.tokenToStr(orderObj.get_Item('order')));
+
+            TableId              dsTableId = this.resolveTableId(alias);
+            QueryBuildDataSource dsQbds    = this.resolveQbds(alias);
+            FieldId              fieldId   = fieldName2Id(dsTableId, fieldName);
+
+            if (fieldId != 0 && dsQbds)
+            {
+                dsQbds.addSortField(fieldId, orderDir == CELTConstants::Descending ? SortOrder::Descending : SortOrder::Ascending);
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>buildSimplifiedPlan</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds a plan from a simplified table object { table, fields, ranges, joins, orderBy }.
+    /// </summary>
+    private void buildSimplifiedPlan(Newtonsoft.Json.Linq.JObject _tableObj)
+    {
+        this.resetPlan();
+
+        str     tableName = this.tokenToStr(_tableObj.get_Item(CELTConstants::cfgTable));
+        TableId tableId   = tableName2Id(tableName);
+
+        if (tableId == 0)
+        {
+            logger.logErrorMessage(
+                classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, buildSimplifiedPlan),
+                strFmt("@CELTLabels:QueryUnknownTable", tableName),
+                _tableObj.ToString());
+            return;
+        }
+
+        primaryTableId = tableId;
+        primaryQbds    = query.addDataSource(tableId);
+        this.nameDataSource(primaryQbds);
+
+        this.applySimplifiedFields(primaryQbds, tableId, _tableObj.get_Item(CELTConstants::cfgFields));
+        this.applySimplifiedRanges(primaryQbds, tableId, _tableObj.get_Item(CELTConstants::cfgRanges));
+        this.applySimplifiedOrderBy(primaryQbds, tableId, _tableObj.get_Item(CELTConstants::cfgOrderBy));
+        this.applySimplifiedJoins(primaryQbds, tableId, _tableObj.get_Item(CELTConstants::cfgJoins));
+
+        if (query.dataSourceCount() > 0)
+        {
+            this.addPlan(tableName);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applySimplifiedFields</Name>
+				<Source><![CDATA[
+    private void applySimplifiedFields(QueryBuildDataSource _qbds, TableId _tableId, Newtonsoft.Json.Linq.JToken _fieldsTok)
+    {
+        Newtonsoft.Json.Linq.JArray fieldsArr = _fieldsTok as Newtonsoft.Json.Linq.JArray;
+        if (fieldsArr == null || fieldsArr.get_Count() == 0)
+        {
+            return;   // no restriction -> extractor emits all fields
+        }
+
+        List list = this.ensureFieldList(_qbds);
+        int  i;
+        for (i = 0; i < fieldsArr.get_Count(); i++)
+        {
+            str     fieldName = fieldsArr.get_Item(i).ToString();
+            FieldId fieldId   = fieldName2Id(_tableId, fieldName);
+            if (fieldId != 0)
+            {
+                this.clearFieldsOnce(_qbds, _tableId);
+                _qbds.addSelectionField(fieldId);
+                list.addEnd(fieldName);
+            }
+            else
+            {
+                this.warnUnknownField(fieldName, _tableId);
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applySimplifiedRanges</Name>
+				<Source><![CDATA[
+    private void applySimplifiedRanges(QueryBuildDataSource _qbds, TableId _tableId, Newtonsoft.Json.Linq.JToken _rangesTok)
+    {
+        Newtonsoft.Json.Linq.JArray rangesArr = _rangesTok as Newtonsoft.Json.Linq.JArray;
+        if (rangesArr == null)
+        {
+            return;
+        }
+
+        int i;
+        for (i = 0; i < rangesArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject rangeObj = rangesArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (rangeObj == null)
+            {
+                continue;
+            }
+
+            str     fieldName  = this.tokenToStr(rangeObj.get_Item(CELTConstants::cfgField));
+            str     rangeValue = this.normalizeValue(this.tokenToStr(rangeObj.get_Item(CELTConstants::cfgValue)));
+            FieldId fieldId    = fieldName2Id(_tableId, fieldName);
+
+            if (fieldId != 0)
+            {
+                _qbds.addRange(fieldId).value(rangeValue);
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applySimplifiedOrderBy</Name>
+				<Source><![CDATA[
+    private void applySimplifiedOrderBy(QueryBuildDataSource _qbds, TableId _tableId, Newtonsoft.Json.Linq.JToken _orderTok)
+    {
+        Newtonsoft.Json.Linq.JArray orderArr = _orderTok as Newtonsoft.Json.Linq.JArray;
+        if (orderArr == null)
+        {
+            return;
+        }
+
+        int i;
+        for (i = 0; i < orderArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject orderObj = orderArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (orderObj == null)
+            {
+                continue;
+            }
+
+            str     fieldName = this.tokenToStr(orderObj.get_Item(CELTConstants::cfgField));
+            str     direction = strUpr(this.tokenToStr(orderObj.get_Item(CELTConstants::cfgDirection)));
+            FieldId fieldId   = fieldName2Id(_tableId, fieldName);
+
+            if (fieldId != 0)
+            {
+                _qbds.addSortField(fieldId, direction == CELTConstants::Descending ? SortOrder::Descending : SortOrder::Ascending);
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applySimplifiedJoins</Name>
+				<Source><![CDATA[
+    private void applySimplifiedJoins(QueryBuildDataSource _parentQbds, TableId _parentTableId, Newtonsoft.Json.Linq.JToken _joinsTok)
+    {
+        Newtonsoft.Json.Linq.JArray joinsArr = _joinsTok as Newtonsoft.Json.Linq.JArray;
+        if (joinsArr == null)
+        {
+            return;
+        }
+
+        int i;
+        for (i = 0; i < joinsArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject joinObj = joinsArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (joinObj == null)
+            {
+                continue;
+            }
+
+            str     joinTable   = this.tokenToStr(joinObj.get_Item(CELTConstants::cfgTable));
+            TableId joinTableId  = tableName2Id(joinTable);
+            if (joinTableId == 0)
+            {
+                logger.logWarningMessage(
+                    classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, applySimplifiedJoins),
+                    strFmt('Unknown join table %1', joinTable));
+                continue;
+            }
+
+            QueryBuildDataSource childQbds = _parentQbds.addDataSource(joinTableId);
+            this.nameDataSource(childQbds);
+            childQbds.joinMode(this.mapJoinMode(this.tokenToStr(joinObj.get_Item(CELTConstants::cfgMode))));
+            childQbds.relations(false);
+
+            Newtonsoft.Json.Linq.JArray linksArr = joinObj.get_Item(CELTConstants::cfgLinks) as Newtonsoft.Json.Linq.JArray;
+            if (linksArr != null)
+            {
+                int k;
+                for (k = 0; k < linksArr.get_Count(); k++)
+                {
+                    Newtonsoft.Json.Linq.JObject linkObj = linksArr.get_Item(k) as Newtonsoft.Json.Linq.JObject;
+                    if (linkObj == null)
+                    {
+                        continue;
+                    }
+
+                    FieldId parentFieldId = fieldName2Id(_parentTableId, this.tokenToStr(linkObj.get_Item(CELTConstants::cfgFrom)));
+                    FieldId childFieldId  = fieldName2Id(joinTableId,     this.tokenToStr(linkObj.get_Item(CELTConstants::cfgTo)));
+                    if (parentFieldId != 0 && childFieldId != 0)
+                    {
+                        childQbds.addLink(parentFieldId, childFieldId);
+                    }
+                }
+            }
+
+            this.applySimplifiedFields(childQbds, joinTableId, joinObj.get_Item(CELTConstants::cfgFields));
+            this.applySimplifiedRanges(childQbds, joinTableId, joinObj.get_Item(CELTConstants::cfgRanges));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>resolveTableId</Name>
+				<Source><![CDATA[
+    private TableId resolveTableId(str _alias)
+    {
+        if (_alias != '' && aliasTableId.exists(_alias))
+        {
+            return aliasTableId.lookup(_alias);
+        }
+        return primaryTableId;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>resolveQbds</Name>
+				<Source><![CDATA[
+    private QueryBuildDataSource resolveQbds(str _alias)
+    {
+        if (_alias != '' && aliasQbds.exists(_alias))
+        {
+            return aliasQbds.lookup(_alias);
+        }
+        return primaryQbds;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>nameDataSource</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Gives every datasource a name that is unique within the plan. The emit-field map and the
+    /// cleared-field-list map are keyed by datasource name rather than table id, so a self-join
+    /// (CUSTINVOICEJOUR_ORIGINAL joined back to CUSTINVOICEJOUR) keeps one field list per
+    /// datasource. Keyed by table id, the join-only copy shared the primary list and every field
+    /// was emitted twice - Clear rejected the file with "has duplicate key RECID".
+    /// </summary>
+    private void nameDataSource(QueryBuildDataSource _qbds)
+    {
+        dsCounter++;
+        _qbds.name(strFmt('ds%1_%2', dsCounter, tableId2Name(_qbds.table())));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureFieldList</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Field list to emit for one datasource, keyed by its (plan-unique) datasource name.
+    /// </summary>
+    private List ensureFieldList(QueryBuildDataSource _qbds)
+    {
+        List list;
+        str  dsName = _qbds.name();
+
+        if (fieldsByTable.exists(dsName))
+        {
+            list = fieldsByTable.lookup(dsName);
+        }
+        else
+        {
+            list = new List(Types::String);
+            fieldsByTable.insert(dsName, list);
+        }
+        return list;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>clearFieldsOnce</Name>
+				<Source><![CDATA[
+    private void clearFieldsOnce(QueryBuildDataSource _qbds, TableId _tableId)
+    {
+        str dsName = _qbds.name();
+
+        if (!clearedTables.exists(dsName))
+        {
+            QueryBuildFieldList qbfl = _qbds.fields();
+            qbfl.dynamic(QueryFieldListDynamic::No);
+            qbfl.clearFieldList();
+            clearedTables.insert(dsName, 1);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>mapJoinMode</Name>
+				<Source><![CDATA[
+    private JoinMode mapJoinMode(str _mode)
+    {
+        switch (_mode)
+        {
+            case CELTConstants::outerJoin:
+            case 'OUTER JOIN':
+                return JoinMode::OuterJoin;
+            case CELTConstants::existsJoin:
+            case 'EXISTS JOIN':
+                return JoinMode::ExistsJoin;
+            case CELTConstants::notExistsJoin:
+            case 'NOT EXISTS JOIN':
+                return JoinMode::NoExistsJoin;
+            default:
+                return JoinMode::InnerJoin;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>csvValues</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Flattens a value token (array or scalar) into a comma-separated string.
+    /// </summary>
+    private str csvValues(Newtonsoft.Json.Linq.JToken _valTok)
+    {
+        Newtonsoft.Json.Linq.JArray arr = _valTok as Newtonsoft.Json.Linq.JArray;
+        if (arr != null)
+        {
+            str s = '';
+            int i;
+            for (i = 0; i < arr.get_Count(); i++)
+            {
+                s += (i == 0 ? '' : ',') + arr.get_Item(i).ToString();
+            }
+            return s;
+        }
+        return this.tokenToStr(_valTok);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>warnUnknownField</Name>
+				<Source><![CDATA[
+    private void warnUnknownField(str _fieldName, TableId _tableId)
+    {
+        logger.logWarningMessage(
+            classStr(CELTQueryBuilder) + '/' + methodStr(CELTQueryBuilder, warnUnknownField),
+            strFmt('Unknown field %1 on table %2', _fieldName, tableId2Name(_tableId)));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>tokenToStr</Name>
+				<Source><![CDATA[
+    private str tokenToStr(Newtonsoft.Json.Linq.JToken _token)
+    {
+        return _token != null ? _token.ToString() : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>jObjectKeys</Name>
+				<Source><![CDATA[
+    private str jObjectKeys(Newtonsoft.Json.Linq.JObject _obj)
+    {
+        str keys = '';
+        if (_obj == null)
+        {
+            return keys;
+        }
+
+        System.Collections.IEnumerable props = _obj.Properties();
+        System.Collections.IEnumerator  en    = props.GetEnumerator();
+        while (en.MoveNext())
+        {
+            Newtonsoft.Json.Linq.JProperty prop = en.get_Current() as Newtonsoft.Json.Linq.JProperty;
+            if (prop != null)
+            {
+                keys += (keys == '' ? '' : ', ') + prop.get_Name();
+            }
+        }
+        return keys;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>topLevelKeys</Name>
+				<Source><![CDATA[
+    private str topLevelKeys(str _json)
+    {
+        try
+        {
+            return this.jObjectKeys(Newtonsoft.Json.Linq.JObject::Parse(_json));
+        }
+        catch
+        {
+            return '(config is not a JSON object)';
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getQueryCount</Name>
+				<Source><![CDATA[
+    public int getQueryCount()
+    {
+        return planCount;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getQuery</Name>
+				<Source><![CDATA[
+    public Query getQuery(int _index)
+    {
+        return planQueries.exists(_index) ? planQueries.lookup(_index) : null;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getOutputName</Name>
+				<Source><![CDATA[
+    public str getOutputName(int _index)
+    {
+        return planNames.exists(_index) ? planNames.lookup(_index) : strFmt('table%1', _index);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getCompany</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The DataAreaId this plan should run under (empty = current company).
+    /// </summary>
+    public str getCompany(int _index)
+    {
+        return planCompanies.exists(_index) ? planCompanies.lookup(_index) : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getFieldMap</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Map of datasource name -> List of field names to emit. A datasource absent from the map means
+    /// "emit all fields"; a present-but-empty list means "emit nothing" (join-only datasource).
+    /// </summary>
+    public Map getFieldMap(int _index)
+    {
+        return planFields.exists(_index) ? planFields.lookup(_index) : new Map(Types::String, Types::Class);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

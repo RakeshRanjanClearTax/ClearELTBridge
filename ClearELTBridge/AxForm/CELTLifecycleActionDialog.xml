@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTLifecycleActionDialog</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+/// <summary>
+/// Reason + comment dialog for Dispute, Suspend and Refuse. Comment is mandatory for Suspend and
+/// Refuse, optional for Dispute (Clear France API v4.1 - 6.5). The reason list is filtered to the
+/// action and is not editable here - reason codes are a contract with the tax authority.
+/// </summary>
+[Form]
+public class CELTLifecycleActionDialog extends FormRun
+{
+    CELTLifecycleAction action;
+    str                 selectedReason;
+    str                 selectedComment;
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    public void init()
+    {
+        super();
+
+        if (element.args() && element.args().parmEnumType() == enumNum(CELTLifecycleAction))
+        {
+            action = element.args().parmEnum();
+        }
+
+        element.design().caption(strFmt("@CELTLabels:LcDialogCaption", enum2Str(action)));
+
+        // 6.5: comment mandatory for Suspend and Refuse, optional for Dispute.
+        CommentCtrl.mandatory(action == CELTLifecycleAction::Suspend || action == CELTLifecycleAction::Refuse);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>okClicked</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Validates and closes. Blocking happens before anything is sent; a failed validation keeps
+    /// the dialog open so nothing typed is lost.
+    /// </summary>
+    public void okClicked()
+    {
+        str reason  = ReasonCodeCtrl.text();
+        str comment = CommentCtrl.text();
+
+        if (reason == '')
+        {
+            warning("@CELTLabels:LcReasonMandatory");
+            return;
+        }
+
+        if (!CELTLifecycleReasonCode::exist(action, reason))
+        {
+            warning(strFmt("@CELTLabels:LcReasonUnknown", reason));
+            return;
+        }
+
+        if (comment == '' && (action == CELTLifecycleAction::Suspend || action == CELTLifecycleAction::Refuse))
+        {
+            warning("@CELTLabels:LcCommentMandatory");
+            return;
+        }
+
+        selectedReason  = reason;
+        selectedComment = comment;
+
+        element.closeOk();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmAction</Name>
+				<Source><![CDATA[
+    public CELTLifecycleAction parmAction()
+    {
+        return action;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmReasonCode</Name>
+				<Source><![CDATA[
+    public str parmReasonCode()
+    {
+        return selectedReason;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parmComment</Name>
+				<Source><![CDATA[
+    public str parmComment()
+    {
+        return selectedComment;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="">
+			<Control>
+				<Name>ReasonCodeCtrl</Name>
+				<Type>String</Type>
+				<Methods>
+					<Method>
+						<Name>lookup</Name>
+						<Source><![CDATA[
+        /// <summary>
+        /// Reason codes of the current action only.
+        /// </summary>
+        public void lookup()
+        {
+            SysTableLookup       tableLookup = SysTableLookup::newParameters(tableNum(CELTLifecycleReasonCode), this);
+            Query                query       = new Query();
+            QueryBuildDataSource qbds        = query.addDataSource(tableNum(CELTLifecycleReasonCode));
+
+            qbds.addRange(fieldNum(CELTLifecycleReasonCode, Action)).value(queryValue(element.parmAction()));
+
+            tableLookup.addLookupfield(fieldNum(CELTLifecycleReasonCode, ReasonCode), true);
+            tableLookup.addLookupfield(fieldNum(CELTLifecycleReasonCode, Description));
+            tableLookup.parmQuery(query);
+            tableLookup.performFormLookup();
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+			<Control>
+				<Name>OKButton</Name>
+				<Type>Button</Type>
+				<Methods>
+					<Method>
+						<Name>clicked</Name>
+						<Source><![CDATA[
+        public void clicked()
+        {
+            super();
+            element.okClicked();
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+			<Control>
+				<Name>CancelButton</Name>
+				<Type>Button</Type>
+				<Methods>
+					<Method>
+						<Name>clicked</Name>
+						<Source><![CDATA[
+        public void clicked()
+        {
+            super();
+            element.closeCancel();
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+		</DataControls>
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources />
+	<Design>
+		<Caption xmlns="">@CELTLabels:LifecycleAction</Caption>
+		<Style xmlns="">Dialog</Style>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>BodyGroup</Name>
+				<Type>Group</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>ReasonCodeCtrl</Name>
+						<AutoDeclaration>Yes</AutoDeclaration>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Label>@CELTLabels:ReasonCode</Label>
+						<LookupButton>Always</LookupButton>
+						<Mandatory>Yes</Mandatory>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>CommentCtrl</Name>
+						<AutoDeclaration>Yes</AutoDeclaration>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Label>@CELTLabels:Comment</Label>
+					</AxFormControl>
+				</Controls>
+				<FrameType>None</FrameType>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormButtonGroupControl">
+				<Name>ButtonGroupCtrl</Name>
+				<Type>ButtonGroup</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonControl">
+						<Name>OKButton</Name>
+						<Type>Button</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DefaultButton>Yes</DefaultButton>
+						<Text>@CELTLabels:LcOK</Text>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonControl">
+						<Name>CancelButton</Name>
+						<Type>Button</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Text>@CELTLabels:LcCancel</Text>
+					</AxFormControl>
+				</Controls>
+				<ArrangeMethod>HorizontalRight</ArrangeMethod>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

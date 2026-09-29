@@ -1,0 +1,1427 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTLifecycleActionService</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Lifecycle actions and e-reporting payment (Clear France API v4.1 - 6/8). Buyer actions
+/// (Acknowledge/Approve/Dispute/Suspend/Refuse) run on received purchase e-invoices
+/// (CLREInvoiceAPHeader); seller actions (Complete/Confirm payment) run on sent sales invoices
+/// (CustInvoiceJour). Nothing here writes a document status: Clear processes actions
+/// asynchronously and the resulting status arrives later through the Get Status poll. What this
+/// stamps is what we ASKED for and when.
+///
+/// The AR side reads status from the writeback (PAExchangeStatus); the AP side remembers it
+/// locally (LifecycleStatus, set from the last successful action) - seller-side transitions
+/// never reach us, so an AP status can go stale.
+///
+/// The auth header differs from the rest of the app: this API uses x-cleartax-auth-token where
+/// the command queue uses x-clear-auth-token. Same token value, different name; the wrong one
+/// returns 401 with no other clue.
+/// </summary>
+internal final class CELTLifecycleActionService
+{
+    private CELTLogger logger;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new()
+    {
+        logger = new CELTLogger();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point. The action comes from the menu item's enum parameter, the document
+    /// from the caller's selected record.
+    /// </summary>
+    /// <param name = "_args">menu args (EnumTypeParameter CELTLifecycleAction, record required)</param>
+    public static void main(Args _args)
+    {
+        CELTLifecycleActionService service = new CELTLifecycleActionService();
+        CELTLifecycleAction        action  = _args.parmEnum();
+        CustInvoiceJour            custJour;
+        ProjInvoiceJour            projJour;
+        CLREInvoiceAPHeader        apHeader;
+
+        if (action == CELTLifecycleAction::None)
+        {
+            throw error("@CELTLabels:LcNoAction");
+        }
+
+        // Log lines written during the action carry the invoice number, so the invoice lists can
+        // open the exact log trail for one selected invoice.
+        try
+        {
+            switch (_args.dataset())
+            {
+                case tableNum(CustInvoiceJour):
+                    custJour = _args.record() as CustInvoiceJour;
+                    CELTLogger::documentId(custJour.InvoiceId);
+                    service.runForSalesInvoice(custJour, action);
+                    break;
+
+                case tableNum(ProjInvoiceJour):
+                    projJour = _args.record() as ProjInvoiceJour;
+                    CELTLogger::documentId(projJour.ProjInvoiceId);
+                    service.runForProjInvoice(projJour, action);
+                    break;
+
+                case tableNum(CLREInvoiceAPHeader):
+                    apHeader = _args.record() as CLREInvoiceAPHeader;
+                    CELTLogger::documentId(apHeader.DocumentNo);
+                    service.runForApInvoice(apHeader, action);
+                    break;
+
+                default:
+                    throw error("@CELTLabels:LcNoRecord");
+            }
+        }
+        finally
+        {
+            CELTLogger::documentId('');
+        }
+
+        // Re-read the caller's grid so stamped status/action columns show the action's result.
+        if (_args.caller() && formHasMethod(_args.caller(), identifierStr(research)))
+        {
+            _args.caller().research(true);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>runForSalesInvoice</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Seller-side entry point: Complete and Confirm payment on a sent sales invoice.
+    /// </summary>
+    /// <param name = "_jour">the selected posted invoice journal</param>
+    /// <param name = "_action">lifecycle action</param>
+    public void runForSalesInvoice(CustInvoiceJour _jour, CELTLifecycleAction _action)
+    {
+        this.runSellerAction(_jour.InvoiceId, _jour.InvoiceDate, _jour.InvoiceAmount, _jour.LedgerVoucher, _jour.InvoiceAccount, _jour.InvoicePostalAddress, _action);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>runForProjInvoice</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Seller-side entry point for project invoices - the same seller actions as the customer
+    /// journal, keyed by the project invoice id. Project invoices carry no invoice postal address
+    /// reference, so the reporting-flow derivation falls back to the customer's primary address.
+    /// </summary>
+    /// <param name = "_projJour">the selected posted project invoice journal</param>
+    /// <param name = "_action">lifecycle action</param>
+    public void runForProjInvoice(ProjInvoiceJour _projJour, CELTLifecycleAction _action)
+    {
+        this.runSellerAction(_projJour.ProjInvoiceId, _projJour.InvoiceDate, _projJour.InvoiceAmount, _projJour.LedgerVoucher, _projJour.InvoiceAccount, 0, _action);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>runSellerAction</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The seller flow, shared by the customer and project invoice journals: capability -> read
+    /// the writeback row -> derive reporting flow -> build the business key -> status whitelist
+    /// -> collect data -> POST -> stamp.
+    /// </summary>
+    /// <param name = "_invoiceId">the posted invoice number (business document number)</param>
+    /// <param name = "_invoiceDate">the invoice date</param>
+    /// <param name = "_invoiceAmount">the signed invoice amount (VAT split fallback)</param>
+    /// <param name = "_voucher">the ledger voucher the tax transactions were posted under</param>
+    /// <param name = "_invoiceAccount">the invoice customer account</param>
+    /// <param name = "_invoicePostalAddress">the posted bill-to address (0 when the journal has none)</param>
+    /// <param name = "_action">lifecycle action</param>
+    private void runSellerAction(
+        str                 _invoiceId,
+        TransDate           _invoiceDate,
+        AmountCur           _invoiceAmount,
+        Voucher             _voucher,
+        CustAccount         _invoiceAccount,
+        RefRecId            _invoicePostalAddress,
+        CELTLifecycleAction _action)
+    {
+        ClearTaxEInvoiceResponseTable writeback;
+        CELTPaymentVatSplitTmp        splitTmp;
+        CELTReportingFlow             flow;
+        str                           docNumber, docDate, taxpayerId, typeCode;
+        str                           statusText;
+        str                           reasonCode, comment;
+        TransDate                     collectionDate;
+
+        if (this.isBuyerAction(_action))
+        {
+            throw error("@CELTLabels:LcSellerOnly");
+        }
+
+        this.checkCapability(_action);
+
+        // The document is identified by BUSINESS KEY, not by Clear's id - four values we already
+        // hold, where the id was something we had to be told. Nothing resolves a document id
+        // any more, so the action works before any writeback has arrived.
+        writeback  = this.findSalesWriteback(_invoiceId);
+        docNumber  = _invoiceId;
+        docDate    = this.normalizeDateText(writeback.InvoiceDate, _invoiceDate);
+        taxpayerId = this.salesTaxpayerIdentifier();
+        typeCode   = writeback.DOC_TYPE != 0 ? int2Str(writeback.DOC_TYPE) : CELTConstants::DefaultDocTypeCode;
+
+        // Reporting flow matters only for Confirm payment; everything else is exchange-only.
+        flow = _action == CELTLifecycleAction::ConfirmPayment
+            ? this.deriveReportingFlow(_invoiceAccount, _invoicePostalAddress, writeback)
+            : CELTReportingFlow::EInvoicing;
+
+        // An e-report-derived document needs the capability BEFORE the dialog - the flow selector
+        // is pinned to the derived value when the capability is off, so the send would only fail
+        // after typing, and a blocked action should not cost typing first.
+        if (flow != CELTReportingFlow::EInvoicing)
+        {
+            this.checkCapabilityEReporting();
+        }
+
+        // Status whitelist BEFORE the dialog, for the same reason. The AR side reads ONLY the
+        // exchange status (PAExchangeStatus): the sync-reply STATUS field is a submission result,
+        // not the 6.12 vocabulary, and falling back to it would hard-block a document whose
+        // exchange status simply has not arrived yet - blank asks for confirmation instead.
+        statusText = writeback.PAExchangeStatus;
+
+        boolean statusChecked = false;
+        if (flow == CELTReportingFlow::EInvoicing)
+        {
+            this.checkStatusAllows(_action, statusText, true);
+            statusChecked = true;
+        }
+
+        if (_action == CELTLifecycleAction::ConfirmPayment)
+        {
+            splitTmp = this.buildVatSplitTmp(_voucher, _invoiceDate, _invoiceAmount, docNumber);
+
+            [flow, collectionDate] = this.collectPaymentData(splitTmp, flow);
+
+            if (flow != CELTReportingFlow::EInvoicing)
+            {
+                // An e-reported document lives in the 4.2 vocabulary, not the exchange lifecycle.
+                this.checkCapabilityEReporting();
+                this.checkEReportStatusAllows(writeback.TxnReportingStatus);
+            }
+            else if (!statusChecked)
+            {
+                // The dialog switched an e-report-derived flow back to e-invoicing; the exchange
+                // whitelist must still hold. (Checked only here, so the blank-status confirmation
+                // is never asked twice.)
+                this.checkStatusAllows(_action, statusText, true);
+            }
+        }
+
+        this.performAction(docNumber, docDate, taxpayerId, typeCode, _invoiceId, _action, reasonCode, comment, collectionDate, splitTmp, flow);
+
+        this.stampSales(writeback, _action);
+
+        if (_action == CELTLifecycleAction::ConfirmPayment)
+        {
+            this.persistPaymentLines(docNumber, _invoiceId, collectionDate, splitTmp);
+        }
+
+        info(strFmt("@CELTLabels:LcActionSent", this.actionTypeStr(_action), docNumber));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>runForApInvoice</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Buyer-side entry point: Acknowledge/Approve/Dispute/Suspend/Refuse on a received purchase
+    /// e-invoice. Identified by business key - no document id to resolve, so buyer actions work
+    /// on every received invoice (the AP writeback never carried an id; closed with Clear).
+    /// </summary>
+    /// <param name = "_apHeader">the selected purchase e-invoice header</param>
+    /// <param name = "_action">lifecycle action</param>
+    public void runForApInvoice(CLREInvoiceAPHeader _apHeader, CELTLifecycleAction _action)
+    {
+        CLREInvoiceAPHeader     apHeader = _apHeader;
+        CELTPaymentVatSplitTmp  emptySplit;
+        str                     docNumber, docDate, taxpayerId, typeCode;
+        str                     reasonCode, comment;
+        boolean                 collected;
+
+        if (!this.isBuyerAction(_action))
+        {
+            throw error("@CELTLabels:LcBuyerOnly");
+        }
+
+        this.checkCapability(_action);
+
+        // The AP side remembers its own status locally; blank means nothing has been done yet
+        // and every buyer action is open.
+        this.checkStatusAllows(_action, apHeader.LifecycleStatus, false);
+
+        [collected, reasonCode, comment] = this.collectReasonData(_action);
+        if (!collected)
+        {
+            return;
+        }
+
+        // Business key: number, date, taxpayer, type code. The taxpayer is always US - our SIREN
+        // as buyer, the same setup field the x-clear-siren header reads, so header and body
+        // cannot drift apart. No document id to resolve: buyer actions work on every received
+        // invoice. The flow is pinned to e-invoicing - PURCHASE_B2B_EREPORT is sales-only and
+        // cannot be constructed by accident.
+        docNumber  = apHeader.DocumentNo;
+        docDate    = this.formatDate(apHeader.IssueDate);
+        taxpayerId = this.companySiren();
+        typeCode   = apHeader.InvoiceTypeCode != '' ? apHeader.InvoiceTypeCode : CELTConstants::DefaultDocTypeCode;
+
+        this.performAction(docNumber, docDate, taxpayerId, typeCode, apHeader.DocumentNo, _action, reasonCode, comment, dateNull(), emptySplit, CELTReportingFlow::EInvoicing);
+
+        this.stampAp(apHeader, _action);
+
+        info(strFmt("@CELTLabels:LcActionSent", this.actionTypeStr(_action), docNumber));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>checkCapability</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Capability gate, checked before anything is sent - hiding buttons alone is not enough,
+    /// personalisation and other callers walk straight past it. All capabilities default off.
+    /// </summary>
+    /// <param name = "_action">lifecycle action</param>
+    private void checkCapability(CELTLifecycleAction _action)
+    {
+        // Regime gate: the seller address country must match the configured lifecycle country.
+        this.checkCountry();
+
+        // Capability gate: the current company's Lifecycle actions checkbox in the Company
+        // capabilities setup (Confirm payment rides on the same checkbox - the setup keeps
+        // exactly two capabilities, Lifecycle actions and Self-billing).
+        if (!CELTCompanyCapability::lifecycleActionsEnabled())
+        {
+            throw error(_action == CELTLifecycleAction::ConfirmPayment
+                ? "@CELTLabels:LcNoPaymentCapability"
+                : "@CELTLabels:LcNoLifecycleCapability");
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>checkCapabilityEReporting</Name>
+				<Source><![CDATA[
+    private void checkCapabilityEReporting()
+    {
+        if (CELTParameters::find().EReportingEnabled != NoYes::Yes)
+        {
+            throw error("@CELTLabels:LcNoEReportingCapability");
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>findSalesWriteback</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The newest writeback row for an invoice - current rows match on InvoiceId, legacy-shaped
+    /// rows keyed the ERP number in DocumentId... those carry no Clear id and are not useful here.
+    /// </summary>
+    /// <param name = "_invoiceId">ERP invoice number</param>
+    /// <returns>newest writeback row (may be empty)</returns>
+    private ClearTaxEInvoiceResponseTable findSalesWriteback(str _invoiceId)
+    {
+        ClearTaxEInvoiceResponseTable writeback;
+
+        // Newest by creation time - RecId order is not chronological across AOS sessions.
+        select firstonly writeback
+            order by CreatedDateTime desc, RecId desc
+            where writeback.InvoiceId == _invoiceId;
+
+        return writeback;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>formatDate</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// yyyy-MM-dd, from a verified request - the contract samples contradict each other on the
+    /// format, a verified call settles it over either. All dates leave this class through here
+    /// or normalizeDateText.
+    /// </summary>
+    /// <param name = "_date">the date</param>
+    /// <returns>yyyy-MM-dd text</returns>
+    public str formatDate(TransDate _date)
+    {
+        return date2Str(_date, 321, DateDay::Digits2, DateSeparator::Hyphen, DateMonth::Digits2, DateSeparator::Hyphen, DateYear::Digits4);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>normalizeDateText</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Dates are normalised in one place: Clear's own recorded date when it parses - it arrives
+    /// as free text and is blank before any writeback - and otherwise the document's own date,
+    /// which is always present and correctly typed. Either way yyyy-MM-dd leaves the class.
+    /// </summary>
+    /// <param name = "_recordedText">the writeback's free-text date</param>
+    /// <param name = "_fallback">the document's own date</param>
+    /// <returns>yyyy-MM-dd text</returns>
+    private str normalizeDateText(str _recordedText, TransDate _fallback)
+    {
+        TransDate parsed;
+
+        if (_recordedText != '')
+        {
+            parsed = str2Date(_recordedText, 321);
+            if (parsed != dateNull())
+            {
+                return this.formatDate(parsed);
+            }
+        }
+
+        return this.formatDate(_fallback);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>companyRegistrationNumber</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The newest registration number of one type ('VAT', 'SIREN') maintained on the legal
+    /// entity's primary postal address - the Registration IDs the e-invoice itself carries;
+    /// the extraction resolves the seller identifiers from the same place.
+    /// </summary>
+    /// <param name = "_typeName">registration type name</param>
+    /// <returns>the registration number, or empty when none is maintained</returns>
+    private str companyRegistrationNumber(str _typeName)
+    {
+        CompanyInfo                          companyInfo = CompanyInfo::find();
+        LogisticsPostalAddress               postalAddr;
+        DirPartyLocation                     partyLoc;
+        TaxRegistration                      taxRegistration;
+        TaxRegistrationTypeApplicabilityRule rule;
+        RefRecId                             typeRecId;
+
+        typeRecId  = TaxRegistrationType::findByType(_typeName).RecId;
+        postalAddr = companyInfo.postalAddress();
+
+        if (typeRecId && postalAddr.RecId)
+        {
+            partyLoc = DirPartyLocation::findByPartyLocation(companyInfo.RecId, postalAddr.Location);
+            if (partyLoc.RecId)
+            {
+                select firstonly RegistrationNumber from taxRegistration
+                    order by taxRegistration.RecId desc
+                    where taxRegistration.DirPartyLocation == partyLoc.RecId
+                    exists join rule
+                        where rule.RecId               == taxRegistration.TaxRegistrationTypeApplicabilityRule
+                           && rule.TaxRegistrationType == typeRecId;
+
+                return taxRegistration.RegistrationNumber;
+            }
+        }
+
+        return '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>lifecycleRegimeCountry</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The country the lifecycle regime applies to - the Lifecycle country code PARAMETER, so a
+    /// customer can point the regime at another country without a code change; FR only when the
+    /// parameter is blank.
+    /// </summary>
+    /// <returns>upper-cased ISO code of the configured lifecycle regime</returns>
+    public str lifecycleRegimeCountry()
+    {
+        str configured = strLTrim(strRTrim(CELTParameters::find().LifecycleCountryCode));
+
+        return configured != '' ? strUpr(configured) : CELTConstants::DefaultLifecycleCountry;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>isLifecycleActionsVisible</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether the lifecycle controls should show: the CURRENT company's Lifecycle actions
+    /// checkbox in the Company capabilities setup. The forms use this for SHOW/HIDE;
+    /// checkCapability/checkCountry stay as the hard gate behind the buttons.
+    /// </summary>
+    /// <returns>true when the company's Lifecycle actions box is checked</returns>
+    public static boolean isLifecycleActionsVisible()
+    {
+        return CELTCompanyCapability::lifecycleActionsEnabled();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>isSelfBillingVisible</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether the Generate e-invoice buttons should show: the CURRENT company's Self-billing
+    /// checkbox in the Company capabilities setup.
+    /// </summary>
+    /// <returns>true when the company's Self-billing box is checked</returns>
+    public static boolean isSelfBillingVisible()
+    {
+        return CELTCompanyCapability::selfBillingEnabled();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>sellerCountryIsoCode</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The two-letter ISO code of the seller's (legal entity's) primary address country
+    /// (FRA -> FR). Falls back to the raw country region id, then the Lifecycle country code
+    /// parameter, then FR. One resolver for the header AND the country gate.
+    /// </summary>
+    /// <returns>ISO country code</returns>
+    public str sellerCountryIsoCode()
+    {
+        LogisticsPostalAddress        addr = CompanyInfo::find().postalAddress();
+        LogisticsAddressCountryRegion country;
+        str                           fallback;
+
+        if (addr.CountryRegionId != '')
+        {
+            country = LogisticsAddressCountryRegion::find(addr.CountryRegionId);
+            if (country.ISOcode != '')
+            {
+                return country.ISOcode;
+            }
+            return addr.CountryRegionId;
+        }
+
+        fallback = CELTParameters::find().LifecycleCountryCode;
+        return fallback != '' ? fallback : CELTConstants::DefaultLifecycleCountry;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>checkCountry</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The lifecycle actions apply to ONE country regime (Clear France API v4.1) - configured in
+    /// the Lifecycle country code parameter, FR by default. A legal entity whose address country
+    /// differs must not send them - a country gate is a claim about what a tax authority accepts,
+    /// so it is enforced in code, not just hidden in the UI.
+    /// </summary>
+    private void checkCountry()
+    {
+        str isoCode = this.sellerCountryIsoCode();
+        str regime  = this.lifecycleRegimeCountry();
+
+        if (strUpr(isoCode) != regime)
+        {
+            throw error(strFmt("@CELTLabels:LcNotFrance", regime, isoCode));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>companySiren</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Our SIREN - the x-clear-siren header on every action AND the buyer-side taxpayer
+    /// identifier, from ONE source so header and body cannot drift apart. Reads the 'SIREN'
+    /// registration ID maintained on the legal entity's primary postal address first, falling
+    /// back to the Lifecycle SIREN parameter. Mandatory: refuses to send without one.
+    /// </summary>
+    /// <returns>the company SIREN</returns>
+    public str companySiren()
+    {
+        str siren = this.companyRegistrationNumber('SIREN');
+
+        if (siren == '')
+        {
+            siren = CELTParameters::find().LifecycleSIREN;
+        }
+
+        if (siren == '')
+        {
+            throw error("@CELTLabels:LcNoSiren");
+        }
+
+        return siren;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>salesTaxpayerIdentifier</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The taxpayer is always US - our VAT registration as seller. Reads the 'VAT' registration
+    /// ID maintained on the legal entity's primary postal address first, falling back to the
+    /// legal entity's VAT number field when no registration is maintained.
+    /// </summary>
+    /// <returns>the seller taxpayer identifier</returns>
+    public str salesTaxpayerIdentifier()
+    {
+        str vat = this.companyRegistrationNumber('VAT');
+
+        if (vat != '')
+        {
+            return vat;
+        }
+
+        if (CompanyInfo::find().VATNum != '')
+        {
+            return CompanyInfo::find().VATNum;
+        }
+
+        throw error("@CELTLabels:LcNoTaxpayer");
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>realToInvariant</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Invariant decimal text (dot separator, no thousands): a French user locale would
+    /// otherwise emit 20,00 where the API needs 20.00.
+    /// </summary>
+    /// <param name = "_value">the number</param>
+    /// <param name = "_trimZeros">trim trailing zeros (the verified rate is "20", not "20.00")</param>
+    /// <returns>invariant text</returns>
+    private str realToInvariant(real _value, boolean _trimZeros = false)
+    {
+        str text = num2Str(_value, 0, 2, DecimalSeparator::Dot, ThousandSeparator::None);
+
+        if (_trimZeros && strScan(text, '.', 1, strLen(text)) > 0)
+        {
+            while (strLen(text) > 0 && subStr(text, strLen(text), 1) == '0')
+            {
+                text = subStr(text, 1, strLen(text) - 1);
+            }
+            if (strLen(text) > 0 && subStr(text, strLen(text), 1) == '.')
+            {
+                text = subStr(text, 1, strLen(text) - 1);
+            }
+        }
+
+        return text;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>deriveReportingFlow</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Prefers Clear's own answer - the writeback's EInvoiceType, when it says EREPORT. The
+    /// fallback is the document itself: a non-FR invoice-account country means B2B international;
+    /// a blank country counts as domestic. B2C is NEVER inferred - a missing VAT number is far
+    /// more often incomplete master data than a genuine consumer; the user selects it in the
+    /// dialog, where the derived value is only the starting point.
+    /// </summary>
+    /// <param name = "_invoiceAccount">the invoice customer account</param>
+    /// <param name = "_invoicePostalAddress">the posted bill-to address (0 when the journal has none)</param>
+    /// <param name = "_writeback">newest writeback row</param>
+    /// <returns>derived reporting flow</returns>
+    private CELTReportingFlow deriveReportingFlow(CustAccount _invoiceAccount, RefRecId _invoicePostalAddress, ClearTaxEInvoiceResponseTable _writeback)
+    {
+        LogisticsPostalAddress invoiceAddress;
+        CustTable              custTable;
+        str                    eInvoiceTypeUpr = strUpr(_writeback.EInvoiceType);
+        str                    buyerCountry;
+        str                    homeCountry;
+
+        // Clear's own answer distinguishes the two e-reporting flows - honour B2C when it says so
+        // (this is Clear's classification, not an inference from master data).
+        if (strScan(eInvoiceTypeUpr, 'EREPORT', 1, strLen(eInvoiceTypeUpr)) > 0)
+        {
+            return strScan(eInvoiceTypeUpr, 'B2C', 1, strLen(eInvoiceTypeUpr)) > 0
+                ? CELTReportingFlow::B2C
+                : CELTReportingFlow::B2BInternational;
+        }
+
+        // Fallback: the DOCUMENT itself - the posted invoice's bill-to address, not the
+        // customer's current master address (which can change after posting). Compare against
+        // the legal entity's own country rather than a hard-coded id, so FR/FRA code styles
+        // both work. Blank counts as domestic.
+        if (_invoicePostalAddress)
+        {
+            invoiceAddress = LogisticsPostalAddress::findRecId(_invoicePostalAddress);
+            buyerCountry   = invoiceAddress.CountryRegionId;
+        }
+
+        if (buyerCountry == '')
+        {
+            custTable = CustTable::find(_invoiceAccount);
+            if (custTable.RecId)
+            {
+                buyerCountry = custTable.postalAddress().CountryRegionId;
+            }
+        }
+
+        homeCountry = CompanyInfo::find().postalAddress().CountryRegionId;
+
+        if (buyerCountry != '' && homeCountry != '' && buyerCountry != homeCountry)
+        {
+            return CELTReportingFlow::B2BInternational;
+        }
+
+        return CELTReportingFlow::EInvoicing;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>isBuyerAction</Name>
+				<Source><![CDATA[
+    private boolean isBuyerAction(CELTLifecycleAction _action)
+    {
+        return _action == CELTLifecycleAction::Acknowledge
+            || _action == CELTLifecycleAction::Approve
+            || _action == CELTLifecycleAction::Dispute
+            || _action == CELTLifecycleAction::Suspend
+            || _action == CELTLifecycleAction::Refuse;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>normalizeStatus</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Uppercases and strips spaces/underscores so the status name and the portal's error wording
+    /// (PARTIALPAYMENTCOLLECTED vs Partially Collected...) compare equal.
+    /// </summary>
+    private str normalizeStatus(str _status)
+    {
+        return strUpr(strRem(strRem(_status, ' '), '_'));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>isActionAllowedForStatus</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// WHITELIST per Clear France API v4.1 - 6.12: an action is allowed only where the contract
+    /// says so; statuses not named allow nothing. (A blacklist silently permitted every unnamed
+    /// status - and Confirm payment went out on a Received invoice that Clear's portal refuses.)
+    /// Confirm payment is deliberately broader than 6.12: the portal accepts it from every status
+    /// where money can still arrive.
+    /// </summary>
+    /// <param name = "_action">lifecycle action</param>
+    /// <param name = "_status">raw status text</param>
+    /// <param name = "_isSeller">seller (AR) side when true, buyer (AP) side when false</param>
+    /// <returns>true when the action is allowed from the status</returns>
+    private boolean isActionAllowedForStatus(CELTLifecycleAction _action, str _status, boolean _isSeller)
+    {
+        str norm = this.normalizeStatus(_status);
+
+        // Blank: AP starts here - every buyer action is open. The seller path handles blank
+        // separately (asks for confirmation) before calling this.
+        if (norm == '')
+        {
+            return !_isSeller ? this.isBuyerAction(_action) : true;
+        }
+
+        switch (norm)
+        {
+            case 'MADEAVAILABLE':
+                return _isSeller
+                    ? _action == CELTLifecycleAction::ConfirmPayment
+                    : this.isBuyerAction(_action);
+
+            case 'ACKNOWLEDGED':
+                return _isSeller
+                    ? _action == CELTLifecycleAction::ConfirmPayment
+                    : (this.isBuyerAction(_action) && _action != CELTLifecycleAction::Acknowledge);
+
+            case 'APPROVED':
+                return _isSeller && _action == CELTLifecycleAction::ConfirmPayment;
+
+            case 'DISPUTED':
+                return !_isSeller
+                    && (_action == CELTLifecycleAction::Approve || _action == CELTLifecycleAction::Refuse);
+
+            case 'SUSPENDED':
+                return _isSeller
+                    ? _action == CELTLifecycleAction::Complete
+                    : (_action == CELTLifecycleAction::Approve || _action == CELTLifecycleAction::Refuse);
+
+            case 'COMPLETED':
+                return !_isSeller
+                    && (_action == CELTLifecycleAction::Approve || _action == CELTLifecycleAction::Dispute);
+
+            case 'REFUSED':
+            case 'PAYMENTCOLLECTED':
+                return false;   // terminal
+
+            // Money can still arrive from all of these - portal-accepted, beyond 6.12. Both
+            // PARTIALPAYMENTCOLLECTED and PARTIALLYCOLLECTED are listed: the status name and the
+            // portal's error wording disagree, and neither spelling should lock out a payment.
+            case 'PARTIALLYAPPROVED':
+            case 'PAYMENTSENT':
+            case 'PARTIALPAYMENTCOLLECTED':
+            case 'PARTIALLYCOLLECTED':
+            case 'PARTIALPAYMENTCOLLECTEDWITHFAILURES':
+            case 'PAYMENTFAILED':
+                return _isSeller && _action == CELTLifecycleAction::ConfirmPayment;
+
+            default:
+                return false;   // whitelist: unnamed statuses allow nothing
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>checkStatusAllows</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Enforces the whitelist and, when blocked, derives the explanation from the same rule so
+    /// the message cannot drift from the behaviour. Blank status on the seller side asks for
+    /// confirmation instead (the writeback may simply not have arrived yet).
+    /// </summary>
+    private void checkStatusAllows(CELTLifecycleAction _action, str _status, boolean _isSeller)
+    {
+        if (_isSeller && this.normalizeStatus(_status) == '')
+        {
+            if (Box::yesNo("@CELTLabels:LcBlankStatusConfirm", DialogButton::No) != DialogButton::Yes)
+            {
+                throw error("@CELTLabels:LcCancelled");
+            }
+            return;
+        }
+
+        if (!this.isActionAllowedForStatus(_action, _status, _isSeller))
+        {
+            throw error(strFmt("@CELTLabels:LcActionNotAllowed",
+                this.actionTypeStr(_action), _status, this.allowedActionsText(_status, _isSeller)));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>allowedActionsText</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Lists the actions the whitelist allows from a status, derived from the rule itself.
+    /// </summary>
+    private str allowedActionsText(str _status, boolean _isSeller)
+    {
+        str result;
+        int a;
+
+        for (a = 1; a <= 7; a++)
+        {
+            if (this.isActionAllowedForStatus(a, _status, _isSeller))
+            {
+                result += (result != '' ? ', ' : '') + this.actionTypeStr(a);
+            }
+        }
+
+        return result != '' ? result : "@CELTLabels:LcNothingAllowed";
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>checkEReportStatusAllows</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// An e-reported document never enters the exchange lifecycle - its statuses are the 4.2
+    /// vocabulary, and the only question is whether the transaction reached PPF. Payment is
+    /// allowed from Reported, Accepted and Partially Reported.
+    /// </summary>
+    private void checkEReportStatusAllows(str _txnReportingStatus)
+    {
+        str norm = this.normalizeStatus(_txnReportingStatus);
+
+        // A blank e-reporting status usually means the writeback has not carried it yet; the
+        // sales-side blank rule (explicit confirmation) applies.
+        if (norm == '')
+        {
+            if (Box::yesNo("@CELTLabels:LcBlankStatusConfirm", DialogButton::No) != DialogButton::Yes)
+            {
+                throw error("@CELTLabels:LcCancelled");
+            }
+            return;
+        }
+
+        if (norm != 'REPORTED' && norm != 'ACCEPTED' && norm != 'PARTIALLYREPORTED')
+        {
+            throw error(strFmt("@CELTLabels:LcEReportNotAllowed", _txnReportingStatus));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>collectReasonData</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Reason + comment dialog for Dispute, Suspend and Refuse; Acknowledge and Approve carry an
+    /// empty actionData and skip the dialog. Reason codes are seeded (and committed) first,
+    /// because the very next move is opening a dialog.
+    /// </summary>
+    /// <param name = "_action">lifecycle action</param>
+    /// <returns>[collected, reasonCode, comment] - collected false when the user cancelled</returns>
+    private container collectReasonData(CELTLifecycleAction _action)
+    {
+        Args    args;
+        FormRun formRun;
+
+        if (_action == CELTLifecycleAction::Acknowledge || _action == CELTLifecycleAction::Approve)
+        {
+            return [true, '', ''];
+        }
+
+        this.ensureReasonCodesSeeded();
+
+        args = new Args(formStr(CELTLifecycleActionDialog));
+        args.parmEnumType(enumNum(CELTLifecycleAction));
+        args.parmEnum(_action);
+
+        formRun = classfactory.formRunClass(args);
+        formRun.init();
+        formRun.run();
+        formRun.wait();
+
+        if (!formRun.closedOk())
+        {
+            return [false, '', ''];
+        }
+
+        return [true, formRun.parmReasonCode(), formRun.parmComment()];
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>collectPaymentData</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Confirm-payment dialog: collection date, reporting flow and the per-rate amounts. The
+    /// split lines are shared in-memory - the dialog edits the same buffer the caller passed.
+    /// Cancelling throws (nothing has been sent or written yet).
+    /// </summary>
+    /// <param name = "_splitTmp">pre-filled VAT split lines (shared)</param>
+    /// <param name = "_defaultFlow">derived reporting flow, the dialog's starting point</param>
+    /// <returns>[flow, collectionDate]</returns>
+    private container collectPaymentData(CELTPaymentVatSplitTmp _splitTmp, CELTReportingFlow _defaultFlow)
+    {
+        Args    args    = new Args(formStr(CELTConfirmPaymentDialog));
+        FormRun formRun = classfactory.formRunClass(args);
+
+        formRun.init();
+        formRun.setSplitData(_splitTmp);
+        formRun.setDefaults(_defaultFlow, CELTParameters::find().EReportingEnabled == NoYes::Yes);
+        formRun.run();
+        formRun.wait();
+
+        if (!formRun.closedOk())
+        {
+            throw error("@CELTLabels:LcCancelled");
+        }
+
+        return [formRun.parmReportingFlow(), formRun.parmCollectionDate()];
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>buildVatSplitTmp</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// One line per VAT rate of the posted invoice, pre-filled with what is still OUTSTANDING:
+    /// the invoice amount at that rate less whatever earlier payments already reported. Filling
+    /// in the full amount would re-report money already reported - the mismatch Clear rejects.
+    /// A fully collected rate still gets a line, at zero. An invoice with no tax transactions
+    /// gets a single zero-rate line over the invoice total.
+    /// </summary>
+    /// <param name = "_voucher">the ledger voucher the tax transactions were posted under</param>
+    /// <param name = "_invoiceDate">the invoice date</param>
+    /// <param name = "_invoiceAmount">the signed invoice amount (fallback when no tax rows)</param>
+    /// <param name = "_docNumber">business document number (payment-line netting key)</param>
+    /// <returns>populated in-memory split buffer</returns>
+    private CELTPaymentVatSplitTmp buildVatSplitTmp(Voucher _voucher, TransDate _invoiceDate, AmountCur _invoiceAmount, str _docNumber)
+    {
+        CELTPaymentVatSplitTmp splitTmp;
+        TaxTrans               taxTrans;
+        real                   rateAmount;
+        boolean                found;
+
+        // NOTE: two tax codes at the same TaxValue on one line would each carry the base, so the
+        // grouped sum would count that base twice - acceptable for the bridge's one-code-per-line
+        // free text invoices, revisit if multi-code lines appear.
+        while select sum(TaxBaseAmountCur), sum(TaxAmountCur) from taxTrans
+            group by TaxValue
+            where taxTrans.Voucher   == _voucher
+               && taxTrans.TransDate == _invoiceDate
+        {
+            found      = true;
+            // Signed, not abs(): sales-invoice tax transactions post negative, credit notes
+            // positive, so negating gives +gross for invoices and -gross for refunds - and the
+            // contract explicitly allows negatives for refunds. abs() would report a credit note
+            // as money COLLECTED.
+            rateAmount = -(taxTrans.TaxBaseAmountCur + taxTrans.TaxAmountCur);
+
+            splitTmp.clear();
+            splitTmp.Rate              = taxTrans.TaxValue;
+            splitTmp.InvoiceAmount     = rateAmount;
+            splitTmp.OutstandingAmount = rateAmount - CELTPaymentReportLine::collectedForRate(_docNumber, taxTrans.TaxValue);
+            splitTmp.AmountToReport    = splitTmp.OutstandingAmount;
+            splitTmp.insert();
+        }
+
+        if (!found)
+        {
+            splitTmp.clear();
+            splitTmp.Rate              = 0;
+            splitTmp.InvoiceAmount     = _invoiceAmount;
+            splitTmp.OutstandingAmount = _invoiceAmount - CELTPaymentReportLine::collectedForRate(_docNumber, 0);
+            splitTmp.AmountToReport    = splitTmp.OutstandingAmount;
+            splitTmp.insert();
+        }
+
+        return splitTmp;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>actionTypeStr</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Clear's actionType literal per action.
+    /// </summary>
+    private str actionTypeStr(CELTLifecycleAction _action)
+    {
+        switch (_action)
+        {
+            case CELTLifecycleAction::Acknowledge:      return CELTConstants::LcAcknowledge;
+            case CELTLifecycleAction::Approve:          return CELTConstants::LcApprove;
+            case CELTLifecycleAction::Dispute:          return CELTConstants::LcDispute;
+            case CELTLifecycleAction::Suspend:          return CELTConstants::LcSuspend;
+            case CELTLifecycleAction::Refuse:           return CELTConstants::LcRefuse;
+            case CELTLifecycleAction::Complete:         return CELTConstants::LcComplete;
+            case CELTLifecycleAction::ConfirmPayment:   return CELTConstants::LcConfirmPayment;
+            default:                                    return '';
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>einvoiceTypeParam</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The einvoice-type value, sent both as a query parameter and as a header on EVERY action
+    /// (6.3/6.4/6.15 samples): PURCHASE for buyer actions, SALES for seller exchange actions,
+    /// the e-reporting literals for those payment flows. The wrong value is INVALID_FLOW.
+    /// </summary>
+    private str einvoiceTypeParam(CELTLifecycleAction _action, CELTReportingFlow _flow)
+    {
+        if (this.isBuyerAction(_action))
+        {
+            return CELTConstants::FlowPurchase;
+        }
+
+        switch (_flow)
+        {
+            case CELTReportingFlow::B2BInternational:   return CELTConstants::FlowB2BEreport;
+            case CELTReportingFlow::B2C:                return CELTConstants::FlowB2CEreport;
+            default:                                    return CELTConstants::FlowSales;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>performAction</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds the request, POSTs it, logs the attempt (COMMITTED before any error is raised) and
+    /// throws on failure. The document is identified by BUSINESS KEY - number, date, taxpayer,
+    /// type code - not by Clear's id. actionData is {} - present and empty, not omitted - for
+    /// Acknowledge, Approve and Complete.
+    /// </summary>
+    private void performAction(
+        str                     _docNumber,
+        str                     _docDate,
+        str                     _taxpayerId,
+        str                     _typeCode,
+        str                     _invoiceId,
+        CELTLifecycleAction     _action,
+        str                     _reasonCode,
+        str                     _comment,
+        TransDate               _collectionDate,
+        CELTPaymentVatSplitTmp  _splitTmp,
+        CELTReportingFlow       _flow)
+    {
+        CELTParameters          parameter = CELTParameters::find();
+        CELTApiClient           apiClient = new CELTApiClient(logger);
+        CELTLifecycleActionLog  log;
+        CELTPaymentVatSplitTmp  splitTmp  = _splitTmp;
+        str                     eType     = this.einvoiceTypeParam(_action, _flow);
+        str                     requestBody, url, countryCode;
+
+        if (parameter.LifecycleActionURL == '')
+        {
+            throw error("@CELTLabels:LcNoUrl");
+        }
+
+        // Mandatory per 6.1 - refuses to send without it. Registration ID on the legal entity's
+        // primary address first, Lifecycle SIREN parameter as fallback.
+        str sirenValue = this.companySiren();
+
+        // Backstop: 8.4 makes collectionDate mandatory for e-reporting payment. The dialog
+        // insists on one; this guards any other caller. Inventing a date on a tax filing would
+        // be worse than stopping.
+        if (_flow != CELTReportingFlow::EInvoicing && _action == CELTLifecycleAction::ConfirmPayment && _collectionDate == dateNull())
+        {
+            throw error("@CELTLabels:LcNoCollectionDate");
+        }
+
+        Newtonsoft.Json.Linq.JTokenWriter writer = new Newtonsoft.Json.Linq.JTokenWriter();
+        writer.WriteStartObject();
+        writer.WritePropertyName(CELTConstants::jDocumentNumber);
+        writer.WriteValue(_docNumber);
+        writer.WritePropertyName(CELTConstants::jDocumentDate);
+        writer.WriteValue(_docDate);
+        writer.WritePropertyName(CELTConstants::jTaxpayerIdentifier);
+        writer.WriteValue(_taxpayerId);
+        writer.WritePropertyName(CELTConstants::jDocumentTypeCode);
+        writer.WriteValue(_typeCode);
+        writer.WritePropertyName(CELTConstants::jActionType);
+        writer.WriteValue(this.actionTypeStr(_action));
+        writer.WritePropertyName(CELTConstants::jActionData);
+        writer.WriteStartObject();
+
+        if (_reasonCode != '')
+        {
+            // 6.5-6.7: reasonCodes is an ARRAY - the dialog selects one, sent as a single entry.
+            writer.WritePropertyName(CELTConstants::jReasonCodes);
+            writer.WriteStartArray();
+            writer.WriteValue(_reasonCode);
+            writer.WriteEndArray();
+        }
+        if (_comment != '')
+        {
+            writer.WritePropertyName(CELTConstants::jComment);
+            writer.WriteValue(_comment);
+        }
+
+        if (_action == CELTLifecycleAction::ConfirmPayment)
+        {
+            if (_collectionDate != dateNull())
+            {
+                writer.WritePropertyName(CELTConstants::jCollectionDate);
+                writer.WriteValue(this.formatDate(_collectionDate));
+            }
+
+            // Both split values go out as JSON STRINGS, not numbers - that is what the verified
+            // request sends, formatted invariantly so a French user locale cannot emit 20,00.
+            writer.WritePropertyName(CELTConstants::jVatRateSplit);
+            writer.WriteStartArray();
+            while select splitTmp
+            {
+                if (splitTmp.AmountToReport != 0)
+                {
+                    writer.WriteStartObject();
+                    writer.WritePropertyName(CELTConstants::jRate);
+                    writer.WriteValue(this.realToInvariant(splitTmp.Rate, true));
+                    writer.WritePropertyName(CELTConstants::jAmountCollectedInclVat);
+                    writer.WriteValue(this.realToInvariant(splitTmp.AmountToReport));
+                    writer.WriteEndObject();
+                }
+            }
+            writer.WriteEndArray();
+        }
+
+        writer.WriteEndObject();    // actionData
+        writer.WriteEndObject();    // root
+
+        requestBody = writer.get_Token().ToString();
+
+        countryCode = this.sellerCountryIsoCode();
+        url         = parameter.LifecycleActionURL + (eType != '' ? '?' + CELTConstants::einvoice_type + CELTConstants::equalTo + eType : '');
+
+        // This API's auth header is x-cleartax-auth-token, NOT the command queue's
+        // x-clear-auth-token - suppress the client's auto-injection and set it explicitly.
+        apiClient.initialize(CELTAPIRequestType::LifecycleAction);
+        apiClient.suppressAuthToken();
+        apiClient.setURL(url);
+        apiClient.setMethod(CELTAPIMethodType::POST);
+        apiClient.setContentType(CELTConstants::application_json);
+        apiClient.addHeader(CELTConstants::x_cleartax_auth_token_lc, CELTParameters::getAuthToken());
+        apiClient.addHeader(CELTConstants::x_clear_country_code, countryCode);
+        apiClient.addHeader(CELTConstants::x_clear_siren, sirenValue);
+        if (parameter.LifecycleSIRET != '')
+        {
+            apiClient.addHeader(CELTConstants::x_clear_siret, parameter.LifecycleSIRET);
+        }
+        if (eType != '')
+        {
+            apiClient.addHeader(CELTConstants::einvoice_type, eType);
+        }
+        apiClient.setRequestBody(requestBody);
+        apiClient.sendRequest();
+
+        // The log survives the failure: written and committed BEFORE any error is raised.
+        ttsbegin;
+        log.DocumentId   = _docNumber;
+        log.InvoiceId    = _invoiceId;
+        log.Action       = _action;
+        log.ActionType   = this.actionTypeStr(_action);
+        log.ReasonCode   = _reasonCode;
+        log.Comment      = _comment;
+        log.EInvoiceType = eType;
+        log.RequestBody  = requestBody;
+        log.ResponseBody = apiClient.getResponseBody();
+        log.StatusCode   = apiClient.getResponseStatus();
+        log.Success      = apiClient.isSuccess() ? NoYes::Yes : NoYes::No;
+        log.insert();
+        ttscommit;
+
+        if (!apiClient.isSuccess())
+        {
+            throw error(strFmt("@CELTLabels:LcActionFailed",
+                this.actionTypeStr(_action), apiClient.getResponseStatus()));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>stampSales</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Stamps what we asked for, and when, on the newest writeback row - a different question
+    /// from where the document has got to (that arrives later through the Get Status poll).
+    /// </summary>
+    private void stampSales(ClearTaxEInvoiceResponseTable _writeback, CELTLifecycleAction _action)
+    {
+        ClearTaxEInvoiceResponseTable writeback;
+
+        if (!_writeback.RecId)
+        {
+            return;
+        }
+
+        ttsbegin;
+        select firstonly forupdate writeback
+            where writeback.RecId == _writeback.RecId;
+        if (writeback.RecId)
+        {
+            writeback.LastAction   = _action;
+            writeback.LastActionAt = DateTimeUtil::utcNow();
+            writeback.update();
+        }
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>stampAp</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The AP side remembers its own status: set locally from whatever action last succeeded.
+    /// Seller-side transitions never reach us, so this can go stale (open point with Clear).
+    /// </summary>
+    private void stampAp(CLREInvoiceAPHeader _apHeader, CELTLifecycleAction _action)
+    {
+        CLREInvoiceAPHeader apHeader;
+
+        ttsbegin;
+        select firstonly forupdate apHeader
+            where apHeader.RecId == _apHeader.RecId;
+        if (apHeader.RecId)
+        {
+            apHeader.LastAction      = _action;
+            apHeader.LastActionAt    = DateTimeUtil::utcNow();
+            apHeader.LifecycleStatus = this.apStatusForAction(_action);
+            apHeader.update();
+        }
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>apStatusForAction</Name>
+				<Source><![CDATA[
+    private str apStatusForAction(CELTLifecycleAction _action)
+    {
+        switch (_action)
+        {
+            case CELTLifecycleAction::Acknowledge:  return 'Acknowledged';
+            case CELTLifecycleAction::Approve:      return 'Approved';
+            case CELTLifecycleAction::Dispute:      return 'Disputed';
+            case CELTLifecycleAction::Suspend:      return 'Suspended';
+            case CELTLifecycleAction::Refuse:       return 'Refused';
+            default:                                return '';
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>persistPaymentLines</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Persists the per-rate amounts of a successfully reported payment for later netting.
+    /// Zero lines are display-only (a settled rate) and are not stored.
+    /// </summary>
+    private void persistPaymentLines(str _docNumber, str _invoiceId, TransDate _collectionDate, CELTPaymentVatSplitTmp _splitTmp)
+    {
+        CELTPaymentVatSplitTmp splitTmp = _splitTmp;
+        CELTPaymentReportLine  line;
+
+        ttsbegin;
+        while select splitTmp
+        {
+            if (splitTmp.AmountToReport != 0)
+            {
+                line.clear();
+                line.DocumentId      = _docNumber;
+                line.InvoiceId       = _invoiceId;
+                line.CollectionDate  = _collectionDate;
+                line.Rate            = splitTmp.Rate;
+                line.AmountCollected = splitTmp.AmountToReport;
+                line.insert();
+            }
+        }
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureReasonCodesSeeded</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Seeds the full contract reason lists (Clear France API v4.1 - 6.9/6.10/6.11), topping up
+    /// rather than checking for emptiness, so a partial list repairs itself; a drifted
+    /// description is corrected in place. Commits before returning because the caller's very
+    /// next move is a dialog. Refuse carries 24 codes; Dispute is the same list minus
+    /// COORD_BANC_ERR plus AUTRE (also 24); Suspend has 4.
+    /// </summary>
+    private void ensureReasonCodesSeeded()
+    {
+        // 6.9 Reason Codes - Refuse (24 codes), with the contract's English descriptions.
+        container refuseCodes = [
+            ['MONTANTTOTAL_ERR', 'Wrong total amount'],
+            ['CALCUL_ERR',       'Calculation error'],
+            ['TX_TVA_ERR',       'Incorrect VAT rate'],
+            ['PU_ERR',           'Wrong unit price'],
+            ['REM_ERR',          'Wrong discount'],
+            ['CMD_ERR',          'Wrong or missing PO number'],
+            ['QTE_ERR',          'Wrong quantity'],
+            ['ART_ERR',          'Wrong article'],
+            ['QUALITE_ERR',      'Defective quality'],
+            ['LIVR_INCOMP',      'Delivery issue'],
+            ['REF_CT_ABSENT',    'Missing contractual reference'],
+            ['REF_ERR',          'Incorrect reference'],
+            ['SIRET_ERR',        'Wrong or missing SIRET'],
+            ['COORD_BANC_ERR',   'Wrong bank details'],
+            ['CODE_ROUTAGE_ERR', 'Wrong routing code'],
+            ['ADR_ERR',          'Wrong billing address'],
+            ['NON_CONFORME',     'Missing legal mention'],
+            ['MODPAI_ERR',       'Wrong payment terms'],
+            ['DEST_ERR',         'Wrong recipient'],
+            ['EMMET_INC',        'Unknown sender'],
+            ['TRANSAC_INC',      'Unknown transaction'],
+            ['CONTRAT_TERM',     'Contract terminated'],
+            ['DOUBLON',          'Duplicate invoice'],
+            ['DOUBLE_FACT',      'Already invoiced']];
+
+        str reasonCode, description;
+        int i;
+
+        ttsbegin;
+
+        for (i = 1; i <= conLen(refuseCodes); i++)
+        {
+            [reasonCode, description] = conPeek(refuseCodes, i);
+
+            this.seedReason(CELTLifecycleAction::Refuse, reasonCode, description);
+
+            // 6.10 Dispute: same as Refuse except no COORD_BANC_ERR, plus AUTRE.
+            if (reasonCode != 'COORD_BANC_ERR')
+            {
+                this.seedReason(CELTLifecycleAction::Dispute, reasonCode, description);
+            }
+        }
+
+        this.seedReason(CELTLifecycleAction::Dispute, 'AUTRE', 'Other reason');
+
+        // 6.11 Reason Codes - Suspend (4 codes).
+        this.seedReason(CELTLifecycleAction::Suspend, 'JUSTIF_ABS',       'Missing documents');
+        this.seedReason(CELTLifecycleAction::Suspend, 'MONTANTTOTAL_ERR', 'Wrong total amount');
+        this.seedReason(CELTLifecycleAction::Suspend, 'CMD_ERR',          'Wrong or missing PO number');
+        this.seedReason(CELTLifecycleAction::Suspend, 'REF_CT_ABSENT',    'Missing contractual reference');
+
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>seedReason</Name>
+				<Source><![CDATA[
+    private void seedReason(CELTLifecycleAction _action, str _code, str _description)
+    {
+        CELTLifecycleReasonCode reason;
+
+        select firstonly forupdate reason
+            where reason.Action     == _action
+               && reason.ReasonCode == _code;
+
+        if (!reason.RecId)
+        {
+            reason.clear();
+            reason.Action      = _action;
+            reason.ReasonCode  = _code;
+            reason.Description = _description;
+            reason.insert();
+        }
+        else if (reason.Description != _description)
+        {
+            reason.Description = _description;
+            reason.update();
+        }
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

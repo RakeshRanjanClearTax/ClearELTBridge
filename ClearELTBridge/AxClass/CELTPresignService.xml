@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTPresignService</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Requests an S3 pre-signed upload URL for the extracted file. Byte-compatible with the original
+/// ELTPresignedURLGenerator: GET on the pre-sign endpoint (whose relative path ends with "?"),
+/// with file_name and command_id query params and the literal "fileContentType" header.
+/// </summary>
+internal class CELTPresignService
+{
+    private CELTApiClient   apiClient;
+    private CELTLogger      logger;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new(CELTLogger _logger = new CELTLogger(), CELTApiClient _apiClient = null)
+    {
+        logger    = _logger;
+        apiClient = _apiClient ? _apiClient : new CELTApiClient(_logger);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>generatePresignedURL</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Requests the pre-signed URL for the given file name and command id.
+    /// </summary>
+    /// <returns>true on success</returns>
+    public boolean generatePresignedURL(str _fileName = '', str _commandId = '')
+    {
+        CELTParameters parameter = CELTParameters::find();
+
+        apiClient.initialize(CELTAPIRequestType::GetPreSignedURL);
+        apiClient.setURL(parameter.BaseURL + parameter.GetPresignedURL);
+        apiClient.setMethod(CELTAPIMethodType::GET);
+
+        if (_fileName != '')
+        {
+            apiClient.addQueryParams(CELTConstants::file_name, _fileName);
+        }
+        if (_commandId != '')
+        {
+            apiClient.addQueryParams(CELTConstants::command_id, _commandId, CELTConstants::ampersand);
+        }
+
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.addHeader(CELTConstants::fileContentType, CELTConstants::application_zip);
+        apiClient.sendRequest();
+
+        return apiClient.isSuccess();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getPresignedURL</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Extracts result.payload (the actual S3 URL) from the pre-sign response.
+    /// </summary>
+    /// <returns>the S3 pre-signed URL</returns>
+    public str getPresignedURL()
+    {
+        str body = apiClient.getResponseBody();
+        if (body == '')
+        {
+            return '';
+        }
+
+        Newtonsoft.Json.Linq.JObject root      = Newtonsoft.Json.Linq.JObject::Parse(body);
+        Newtonsoft.Json.Linq.JToken  resultTok = root.get_Item(CELTConstants::jResult);
+        Newtonsoft.Json.Linq.JObject resultObj = resultTok as Newtonsoft.Json.Linq.JObject;
+
+        if (resultObj == null)
+        {
+            return '';
+        }
+
+        Newtonsoft.Json.Linq.JToken payloadTok = resultObj.get_Item(CELTConstants::jPayload);
+        return payloadTok != null ? payloadTok.ToString() : '';
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

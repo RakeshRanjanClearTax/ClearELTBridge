@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxFormExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CustFreeInvoice.ClearELTBridge</Name>
+	<ControlModifications />
+	<Controls>
+		<AxFormExtensionControl xmlns="">
+			<Name>CELTEInvoiceTabExt</Name>
+			<FormControl xmlns=""
+				i:type="AxFormTabPageControl">
+				<Name>CELT_EInvoiceTab</Name>
+				<Pattern>FieldsFieldGroups</Pattern>
+				<PatternVersion>1.1</PatternVersion>
+				<Type>TabPage</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormGroupControl">
+						<Name>CELT_EInvoiceGroup</Name>
+						<Type>Group</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormComboBoxControl">
+								<Name>CELT_AETransactionType</Name>
+								<Type>ComboBox</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAETransactionType</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+								<Items />
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormComboBoxControl">
+								<Name>CELT_AEFrequencyOfBilling</Name>
+								<Type>ComboBox</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAEFrequencyOfBilling</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+								<Items />
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormDateControl">
+								<Name>CELT_InvoicePeriodStart</Name>
+								<Type>Date</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTInvoicePeriodStart</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormDateControl">
+								<Name>CELT_InvoicePeriodEnd</Name>
+								<Type>Date</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTInvoicePeriodEnd</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormStringControl">
+								<Name>CELT_AECustomsRefNumber</Name>
+								<Type>String</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAECustomsRefNumber</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormStringControl">
+								<Name>CELT_FRVatDueDateCode</Name>
+								<Type>String</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTFRVatDueDateCode</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormStringControl">
+								<Name>CELT_AEPrincipalId</Name>
+								<Type>String</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAEPrincipalId</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormStringControl">
+								<Name>CELT_AEInvoiceNote</Name>
+								<Type>String</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAEInvoiceNote</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormComboBoxControl">
+								<Name>CELT_AECreditNoteReason</Name>
+								<Type>ComboBox</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAECreditNoteReason</DataField>
+								<DataSource>CustInvoiceTable</DataSource>
+								<Items />
+							</AxFormControl>
+						</Controls>
+						<DataSource>CustInvoiceTable</DataSource>
+					</AxFormControl>
+				</Controls>
+				<ColumnsMode>Fill</ColumnsMode>
+				<Caption>@CELTLabels:EInvoice</Caption>
+			</FormControl>
+			<Parent>FastTab</Parent>
+		</AxFormExtensionControl>
+	</Controls>
+	<DataSources />
+</AxFormExtension>

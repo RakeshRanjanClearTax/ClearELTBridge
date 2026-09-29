@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTableExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>VendInvoiceInfoTable.ClearELTBridge</Name>
+	<FieldGroupExtensions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>CELTEInvoiceFields</Name>
+			<Label>@CELTLabels:EInvoiceFields</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>CELTAETransactionType</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEFrequencyOfBilling</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTInvoicePeriodStart</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTInvoicePeriodEnd</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAECustomsRefNumber</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTFRVatDueDateCode</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEPrincipalId</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEInvoiceNote</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAECreditNoteReason</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<FieldModifications />
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>CELTAETransactionType</Name>
+			<Label>@CELTLabels:AETransactionType</Label>
+			<EnumType>CELTAETransactionType</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>CELTAEFrequencyOfBilling</Name>
+			<Label>@CELTLabels:AEFrequencyOfBilling</Label>
+			<EnumType>CELTAEFrequencyOfBilling</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>CELTInvoicePeriodStart</Name>
+			<Label>@CELTLabels:InvoicePeriodStart</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>CELTInvoicePeriodEnd</Name>
+			<Label>@CELTLabels:InvoicePeriodEnd</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAECustomsRefNumber</Name>
+			<Label>@CELTLabels:AECustomsRefNumber</Label>
+			<StringSize>40</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTFRVatDueDateCode</Name>
+			<Label>@CELTLabels:FRVatDueDateCode</Label>
+			<StringSize>10</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAEPrincipalId</Name>
+			<Label>@CELTLabels:AEPrincipalId</Label>
+			<StringSize>20</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAEInvoiceNote</Name>
+			<Label>@CELTLabels:AEInvoiceNote</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>CELTAECreditNoteReason</Name>
+			<Label>@CELTLabels:AECreditNoteReason</Label>
+			<EnumType>CELTAECreditNoteReason</EnumType>
+		</AxTableField>
+	</Fields>
+	<Indexes />
+	<Mappings />
+	<PropertyModifications />
+	<Relations />
+</AxTableExtension>

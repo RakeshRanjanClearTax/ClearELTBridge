@@ -1,0 +1,857 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CLREInvoiceAPHeader</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Purchase e-invoice (AP) writeback header. One row per received purchase e-invoice document, landed by CELTPostingService from the Clear backend DATA_POSTING writeback (insertTable name CLREInvoiceAPHeader). Field names match the Purchase Writeback config verbatim.
+/// </summary>
+public class CLREInvoiceAPHeader extends common
+{
+}
+]]></Declaration>
+		<Methods />
+	</SourceCode>
+	<Label>@CELTLabels:PurchaseEInvoiceHeader</Label>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TitleField1>DocumentNo</TitleField1>
+	<TitleField2>SellerName</TitleField2>
+	<CreatedBy>Yes</CreatedBy>
+	<CreatedDateTime>Yes</CreatedDateTime>
+	<Modules>SystemAdministration</Modules>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DocumentNo</Name>
+			<Label>@CELTLabels:InvoiceId</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>IssueDate</Name>
+			<Label>@CELTLabels:IssueDate</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldTime">
+			<Name>IssueTime</Name>
+					<Label>@CELTLabels:IssueTime</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>DueDate</Name>
+			<Label>@CELTLabels:DueDate</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceTypeCode</Name>
+			<Label>@CELTLabels:InvoiceType</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceNote</Name>
+			<Label>@CELTLabels:InvoiceNote</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>TaxPointDate</Name>
+			<Label>@CELTLabels:TaxPointDate</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CurrencyCode</Name>
+			<Label>@CELTLabels:CurrencyCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerReference</Name>
+			<Label>@CELTLabels:BuyerReference</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DiscrepancyResponseCode</Name>
+			<Label>@CELTLabels:DiscrepancyResponseCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>InvoicePeriodStartDate</Name>
+					<Label>@CELTLabels:InvoicePeriodStartDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>InvoicePeriodEndDate</Name>
+					<Label>@CELTLabels:InvoicePeriodEndDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>OrderReferenceNo</Name>
+			<Label>@CELTLabels:OrderReferenceNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SalesOrderReferenceNo</Name>
+			<Label>@CELTLabels:SalesOrderReferenceNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ContractDocumentNo</Name>
+			<Label>@CELTLabels:ContractDocumentNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ContractDocumentDesc</Name>
+			<Label>@CELTLabels:ContractDocumentDesc</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AdditionalDocumentNo</Name>
+			<Label>@CELTLabels:AdditionalDocumentNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AddDocTypeCode</Name>
+			<Label>@CELTLabels:AddDocTypeCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AddDocDescription</Name>
+			<Label>@CELTLabels:AddDocDescription</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BillingReferenceNo</Name>
+			<Label>@CELTLabels:BillingReferenceNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>BillingReferenceDate</Name>
+					<Label>@CELTLabels:BillingReferenceDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DespatchDocumentRef</Name>
+			<Label>@CELTLabels:DespatchDocumentRef</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ReceiptDocumentRef</Name>
+			<Label>@CELTLabels:ReceiptDocumentRef</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>OriginatorDocumentRef</Name>
+			<Label>@CELTLabels:OriginatorDocumentRef</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ProjectReference</Name>
+			<Label>@CELTLabels:ProjectReference</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerEndpointSchemeID</Name>
+			<Label>@CELTLabels:SellerEndpointSchemeID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerEndpointID</Name>
+			<Label>@CELTLabels:SupplierEndpointId</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerPartyID</Name>
+			<Label>@CELTLabels:SellerPartyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerName</Name>
+			<Label>@CELTLabels:SupplierName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerCity</Name>
+			<Label>@CELTLabels:SellerCity</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerStreet</Name>
+			<Label>@CELTLabels:SellerStreet</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerPostCode</Name>
+			<Label>@CELTLabels:SellerPostCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerCounty</Name>
+			<Label>@CELTLabels:SellerCounty</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerCountryRegionCode</Name>
+			<Label>@CELTLabels:SupplierCountry</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerVATRegistrationNo</Name>
+			<Label>@CELTLabels:SupplierVATId</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerRegistrationName</Name>
+			<Label>@CELTLabels:SellerRegistrationName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerLegalCompanyID</Name>
+			<Label>@CELTLabels:SellerLegalCompanyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerLegalSchemeID</Name>
+			<Label>@CELTLabels:SellerLegalSchemeID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerLegalSchemeAgcyID</Name>
+			<Label>@CELTLabels:SellerLegalSchemeAgcyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerLegalSchemeAgcyName</Name>
+			<Label>@CELTLabels:SellerLegalSchemeAgcyName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerContactName</Name>
+			<Label>@CELTLabels:SellerContactName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerTelephone</Name>
+			<Label>@CELTLabels:SellerTelephone</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerEMail</Name>
+			<Label>@CELTLabels:SellerEMail</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerEndpointSchemeID</Name>
+			<Label>@CELTLabels:BuyerEndpointSchemeID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerEndpointID</Name>
+			<Label>@CELTLabels:BuyerEndpointID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerPartyID</Name>
+			<Label>@CELTLabels:BuyerPartyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerName</Name>
+			<Label>@CELTLabels:CustomerName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerCity</Name>
+			<Label>@CELTLabels:BuyerCity</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerStreet</Name>
+			<Label>@CELTLabels:BuyerStreet</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerPostCode</Name>
+			<Label>@CELTLabels:BuyerPostCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerCounty</Name>
+			<Label>@CELTLabels:BuyerCounty</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerCountryRegionCode</Name>
+			<Label>@CELTLabels:BuyerCountryRegionCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerVATRegistrationNo</Name>
+			<Label>@CELTLabels:BuyerVATRegistrationNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerRegistrationName</Name>
+			<Label>@CELTLabels:BuyerRegistrationName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerLegalCompanyID</Name>
+			<Label>@CELTLabels:BuyerLegalCompanyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerLegalSchemeID</Name>
+			<Label>@CELTLabels:BuyerLegalSchemeID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerLegalSchemeAgcyID</Name>
+			<Label>@CELTLabels:BuyerLegalSchemeAgcyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerLegalSchemeAgcyName</Name>
+			<Label>@CELTLabels:BuyerLegalSchemeAgcyName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerContactName</Name>
+			<Label>@CELTLabels:BuyerContactName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerTelephone</Name>
+			<Label>@CELTLabels:BuyerTelephone</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerEMail</Name>
+			<Label>@CELTLabels:BuyerEMail</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PayeePartyID</Name>
+			<Label>@CELTLabels:PayeePartyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PayeePartyName</Name>
+			<Label>@CELTLabels:PayeePartyName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PayeeLegalCompanyID</Name>
+			<Label>@CELTLabels:PayeeLegalCompanyID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PayeeLegalSchemeID</Name>
+			<Label>@CELTLabels:PayeeLegalSchemeID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepName</Name>
+			<Label>@CELTLabels:TaxRepName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepStreet</Name>
+			<Label>@CELTLabels:TaxRepStreet</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepAdditionalStreet</Name>
+			<Label>@CELTLabels:TaxRepAdditionalStreet</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepCity</Name>
+			<Label>@CELTLabels:TaxRepCity</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepPostCode</Name>
+			<Label>@CELTLabels:TaxRepPostCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepCounty</Name>
+			<Label>@CELTLabels:TaxRepCounty</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepAddressLine</Name>
+			<Label>@CELTLabels:TaxRepAddressLine</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepCountryRegionCode</Name>
+			<Label>@CELTLabels:TaxRepCountryRegionCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepSchemeID</Name>
+			<Label>@CELTLabels:TaxRepSchemeID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxRepVATRegNo</Name>
+			<Label>@CELTLabels:TaxRepVATRegNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryLocationID</Name>
+			<Label>@CELTLabels:DeliveryLocationID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>ActualDeliveryDate</Name>
+			<Label>@CELTLabels:ActualDeliveryDate</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryPartyName</Name>
+			<Label>@CELTLabels:DeliveryPartyName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryStreet</Name>
+			<Label>@CELTLabels:DeliveryStreet</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryAdditionalStreet</Name>
+			<Label>@CELTLabels:DeliveryAdditionalStreet</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryCity</Name>
+			<Label>@CELTLabels:DeliveryCity</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryPostCode</Name>
+			<Label>@CELTLabels:DeliveryPostCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryCounty</Name>
+			<Label>@CELTLabels:DeliveryCounty</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryAddressLine</Name>
+			<Label>@CELTLabels:DeliveryAddressLine</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DeliveryCountryRegionCode</Name>
+			<Label>@CELTLabels:DeliveryCountryRegionCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PaymentMeansCode</Name>
+			<Label>@CELTLabels:PaymentMeansCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PaymentMeansName</Name>
+			<Label>@CELTLabels:PaymentMeansName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PaymentInstructionNote</Name>
+			<Label>@CELTLabels:PaymentInstructionNote</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PaymentTermsNote</Name>
+			<Label>@CELTLabels:PaymentTermsNote</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PaymentTermsID</Name>
+			<Label>@CELTLabels:PaymentTermsID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PayeeFinAccountID</Name>
+			<Label>@CELTLabels:PayeeFinAccountID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PayeeFinAccSchemeID</Name>
+			<Label>@CELTLabels:PayeeFinAccSchemeID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PayeeFinAccountName</Name>
+			<Label>@CELTLabels:PayeeFinAccountName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>FinInstitutionBranchID</Name>
+			<Label>@CELTLabels:FinInstitutionBranchID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CardAccountNo</Name>
+			<Label>@CELTLabels:CardAccountNo</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CardNetworkID</Name>
+			<Label>@CELTLabels:CardNetworkID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CardHolderName</Name>
+			<Label>@CELTLabels:CardHolderName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PaymentMeansID</Name>
+			<Label>@CELTLabels:PaymentMeansID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PaymentMandateID</Name>
+			<Label>@CELTLabels:PaymentMandateID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxExchSourceCurrency</Name>
+			<Label>@CELTLabels:TaxExchSourceCurrency</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxExchTargetCurrency</Name>
+			<Label>@CELTLabels:TaxExchTargetCurrency</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>TaxExchangeRate</Name>
+					<Label>@CELTLabels:TaxExchangeRate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PrepaidPaymentID</Name>
+			<Label>@CELTLabels:PrepaidPaymentID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxIncludedIndicator</Name>
+			<Label>@CELTLabels:TaxIncludedIndicator</Label>
+			<StringSize>10</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>InvoiceVATAmount</Name>
+					<Label>@CELTLabels:InvoiceVATAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>LineExtensionAmount</Name>
+			<Label>@CELTLabels:LineAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceTotalAmount</Name>
+			<Label>@CELTLabels:AllowanceTotalAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeTotalAmount</Name>
+			<Label>@CELTLabels:ChargeTotalAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PrepaidAmount</Name>
+			<Label>@CELTLabels:PrepaidAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>TaxExclusiveAmount</Name>
+			<Label>@CELTLabels:TaxExclusiveAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>TaxInclusiveAmount</Name>
+			<Label>@CELTLabels:TaxInclusiveAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PayableRoundingAmount</Name>
+					<Label>@CELTLabels:PayableRoundingAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PayableAmount</Name>
+			<Label>@CELTLabels:PayableAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AllowanceIndicator</Name>
+			<Label>@CELTLabels:AllowanceIndicator</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AllowanceReasonCode</Name>
+			<Label>@CELTLabels:AllowanceReasonCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AllowanceReason</Name>
+			<Label>@CELTLabels:AllowanceReason</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceMultiplierPct</Name>
+					<Label>@CELTLabels:AllowanceMultiplierPct</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceAmount</Name>
+					<Label>@CELTLabels:AllowanceAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AllowanceTaxCategory</Name>
+			<Label>@CELTLabels:AllowanceTaxCategory</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceTaxPercent</Name>
+					<Label>@CELTLabels:AllowanceTaxPercent</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceBaseAmount</Name>
+					<Label>@CELTLabels:AllowanceBaseAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ChargeIndicator</Name>
+			<Label>@CELTLabels:ChargeIndicator</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ChargeReasonCode</Name>
+			<Label>@CELTLabels:ChargeReasonCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ChargeReason</Name>
+			<Label>@CELTLabels:ChargeReason</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeMultiplierPct</Name>
+					<Label>@CELTLabels:ChargeMultiplierPct</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeAmount</Name>
+					<Label>@CELTLabels:ChargeAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ChargeTaxCategory</Name>
+			<Label>@CELTLabels:ChargeTaxCategory</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeTaxPercent</Name>
+					<Label>@CELTLabels:ChargeTaxPercent</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeBaseAmount</Name>
+					<Label>@CELTLabels:ChargeBaseAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>UniqueId</Name>
+			<Label>@CELTLabels:UniqueId</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PeppolStatus</Name>
+			<Label>@CELTLabels:PeppolStatus</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ClearDocumentId</Name>
+			<Label>@CELTLabels:ClearDocumentId</Label>
+			<StringSize>50</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>LastAction</Name>
+			<Label>@CELTLabels:LastAction</Label>
+			<EnumType>CELTLifecycleAction</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldUtcDateTime">
+			<Name>LastActionAt</Name>
+			<Label>@CELTLabels:LastActionAt</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>LifecycleStatus</Name>
+			<Label>@CELTLabels:LifecycleStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>DocumentNoIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>DocumentNo</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+		<AxTableIndex>
+			<Name>UniqueIdIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>UniqueId</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations />
+	<StateMachines />
+</AxTable>

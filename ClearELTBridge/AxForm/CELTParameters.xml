@@ -1,0 +1,299 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTParameters</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTParameters extends FormRun
+{
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Seeds the single parameters record with the add-on's default endpoints on first open, and
+    /// backfills any endpoint left blank on an existing record - so a fresh install only needs the
+    /// ERP instance ID, Workspace ID and Authentication token typed in. Every defaulted field stays
+    /// editable. The Lifecycle actions tab shows only when the capability is enabled for the
+    /// company (Company capabilities setup).
+    /// </summary>
+    public void init()
+    {
+        CELTParameters parameter;
+
+        if (!CELTParameters::exist())
+        {
+            ttsbegin;
+            parameter.clear();
+            parameter.Primary               = 1;
+            parameter.Environment           = CELTEnvironment::Sandbox;
+            parameter.BaseURL               = CELTConstants::Default_BaseURL;
+            parameter.PingURL               = CELTConstants::PingURL;
+            parameter.GetCommandsURL        = CELTConstants::GetCommandURL;
+            parameter.GetPresignedURL       = CELTConstants::GetPreSignedURL;
+            parameter.TriggerIngestionURL   = CELTConstants::TriggerIngestionURL;
+            parameter.TelemetryURL          = CELTConstants::TelemetryURL;
+            parameter.AccessTokenURL        = CELTConstants::AccessTokenURL;
+            parameter.GetCommandURLSync     = CELTConstants::Default_GetCommandURLSync;
+            parameter.PresignedURLSync      = CELTConstants::Default_PresignedURLSync;
+            parameter.GetStatusURL          = CELTConstants::Default_GetStatusURL;
+            parameter.AckURL                = CELTConstants::Default_AckURL;
+            parameter.DocumentPrintURL      = CELTConstants::Default_DocumentPrintURL;
+            parameter.ErpInstanceID         = CELTConstants::ERPInstanceId;
+            parameter.WorkspaceID           = CELTConstants::WorkspaceId;
+            parameter.RetentionDays         = 30;
+            parameter.insert();
+            ttscommit;
+        }
+        else
+        {
+            // Backfill only what is blank - values a user (or another country setup, e.g. France)
+            // has entered are never overwritten.
+            boolean changed;
+
+            ttsbegin;
+            select forupdate firstonly parameter;
+            if (parameter.RecId)
+            {
+                if (parameter.BaseURL == '')             { parameter.BaseURL             = CELTConstants::Default_BaseURL;             changed = true; }
+                if (parameter.PingURL == '')             { parameter.PingURL             = CELTConstants::PingURL;                     changed = true; }
+                if (parameter.GetCommandsURL == '')      { parameter.GetCommandsURL      = CELTConstants::GetCommandURL;               changed = true; }
+                if (parameter.GetPresignedURL == '')     { parameter.GetPresignedURL     = CELTConstants::GetPreSignedURL;             changed = true; }
+                if (parameter.TriggerIngestionURL == '') { parameter.TriggerIngestionURL = CELTConstants::TriggerIngestionURL;         changed = true; }
+                if (parameter.TelemetryURL == '')        { parameter.TelemetryURL        = CELTConstants::TelemetryURL;                changed = true; }
+                if (parameter.AccessTokenURL == '')      { parameter.AccessTokenURL      = CELTConstants::AccessTokenURL;              changed = true; }
+                if (parameter.GetCommandURLSync == '')   { parameter.GetCommandURLSync   = CELTConstants::Default_GetCommandURLSync;   changed = true; }
+                if (parameter.PresignedURLSync == '')    { parameter.PresignedURLSync    = CELTConstants::Default_PresignedURLSync;    changed = true; }
+                if (parameter.GetStatusURL == '')        { parameter.GetStatusURL        = CELTConstants::Default_GetStatusURL;        changed = true; }
+                if (parameter.AckURL == '')              { parameter.AckURL              = CELTConstants::Default_AckURL;              changed = true; }
+                if (parameter.DocumentPrintURL == '')    { parameter.DocumentPrintURL    = CELTConstants::Default_DocumentPrintURL;    changed = true; }
+
+                if (changed)
+                {
+                    parameter.update();
+                }
+            }
+            ttscommit;
+        }
+
+        super();
+
+        element.design().controlName(formControlStr(CELTParameters, TabLifecycle)).visible(CELTLifecycleActionService::isLifecycleActionsVisible());
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CELTParameters</Name>
+			<Table>CELTParameters</Table>
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<Fields>
+				<AxFormDataSourceField>
+					<DataField>Environment</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>BaseURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>PingURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>GetCommandsURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>GetPresignedURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>TriggerIngestionURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>TelemetryURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>AccessTokenURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>ErpInstanceID</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>WorkspaceID</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>RetentionDays</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>GetCommandURLSync</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>PresignedURLSync</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>GetStatusURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>AckURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>AuthToken</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>LifecycleActionURL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>LifecycleCountryCode</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>LifecycleSIREN</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>LifecycleSIRET</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>EReportingEnabled</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>DocumentPrintURL</DataField>
+				</AxFormDataSourceField>
+			</Fields>
+			<ReferencedDataSources />
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:CELTParameters</Caption>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormTabControl">
+				<Name>Tab</Name>
+				<Type>Tab</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>TabIdentity</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>GroupIdentity</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls />
+								<DataGroup>Identity</DataGroup>
+								<DataSource>CELTParameters</DataSource>
+								<FrameType>None</FrameType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:Identity</Caption>
+						<FastTabExpanded>Yes</FastTabExpanded>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>TabEInvoiceApi</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>GroupEInvoiceApi</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls />
+								<DataGroup>EInvoiceAPIDetails</DataGroup>
+								<DataSource>CELTParameters</DataSource>
+								<FrameType>None</FrameType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:EInvoiceAPIDetails</Caption>
+						<FastTabExpanded>Yes</FastTabExpanded>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>TabLifecycle</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>GroupLifecycle</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls />
+								<DataGroup>LifecycleActions</DataGroup>
+								<DataSource>CELTParameters</DataSource>
+								<FrameType>None</FrameType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:LifecycleActions</Caption>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>TabMaintenance</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>GroupMaintenance</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls />
+								<DataGroup>Maintenance</DataGroup>
+								<DataSource>CELTParameters</DataSource>
+								<FrameType>None</FrameType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:PeriodicTasks</Caption>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>TabEndpoints</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>GroupEndpoints</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls />
+								<DataGroup>Endpoints</DataGroup>
+								<DataSource>CELTParameters</DataSource>
+								<FrameType>None</FrameType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:Endpoints</Caption>
+					</AxFormControl>
+				</Controls>
+				<Style>FastTabs</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

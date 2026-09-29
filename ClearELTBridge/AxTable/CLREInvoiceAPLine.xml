@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CLREInvoiceAPLine</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Purchase e-invoice (AP) writeback lines. Child of CLREInvoiceAPHeader on DocumentNo; landed by CELTPostingService (insertTable name CLREInvoiceAPLine). Field names match the Purchase Writeback config verbatim.
+/// </summary>
+public class CLREInvoiceAPLine extends common
+{
+}
+]]></Declaration>
+		<Methods />
+	</SourceCode>
+	<Label>@CELTLabels:PurchaseEInvoiceLine</Label>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TitleField1>DocumentNo</TitleField1>
+	<TitleField2>ItemName</TitleField2>
+	<CreatedBy>Yes</CreatedBy>
+	<CreatedDateTime>Yes</CreatedDateTime>
+	<Modules>SystemAdministration</Modules>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldInt">
+			<Name>LineNo</Name>
+			<Label>@CELTLabels:LineNumber</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DocumentNo</Name>
+			<Label>@CELTLabels:InvoiceId</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>EInvoiceLineID</Name>
+			<Label>@CELTLabels:EInvoiceLineID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>Quantity</Name>
+			<Label>@CELTLabels:Quantity</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>UnitCode</Name>
+			<Label>@CELTLabels:UnitCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>LineExtensionAmount</Name>
+			<Label>@CELTLabels:LineAmount</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>OrderLineRefLineID</Name>
+			<Label>@CELTLabels:OrderLineRefLineID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>OrderLineRefOrderID</Name>
+			<Label>@CELTLabels:OrderLineRefOrderID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ChargeIndicator</Name>
+			<Label>@CELTLabels:ChargeIndicator</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ChargeReasonCode</Name>
+			<Label>@CELTLabels:ChargeReasonCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ChargeReason</Name>
+			<Label>@CELTLabels:ChargeReason</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeMultiplierPct</Name>
+					<Label>@CELTLabels:ChargeMultiplierPct</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeAmount</Name>
+					<Label>@CELTLabels:ChargeAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ChargeBaseAmount</Name>
+					<Label>@CELTLabels:ChargeBaseAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AllowanceIndicator</Name>
+			<Label>@CELTLabels:AllowanceIndicator</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AllowanceReasonCode</Name>
+			<Label>@CELTLabels:AllowanceReasonCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AllowanceReason</Name>
+			<Label>@CELTLabels:AllowanceReason</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceMultiplierPct</Name>
+					<Label>@CELTLabels:AllowanceMultiplierPct</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceAmount</Name>
+					<Label>@CELTLabels:AllowanceAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>AllowanceBaseAmount</Name>
+					<Label>@CELTLabels:AllowanceBaseAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ItemDescription</Name>
+			<Label>@CELTLabels:ItemDescription</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ItemName</Name>
+			<Label>@CELTLabels:ItemName</Label>
+			<StringSize>150</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyersItemIdentification</Name>
+			<Label>@CELTLabels:BuyersItemIdentification</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellersItemIdentification</Name>
+			<Label>@CELTLabels:SellersItemIdentification</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>StandardItemIdentification</Name>
+			<Label>@CELTLabels:StandardItemIdentification</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>OriginCountryRegionCode</Name>
+			<Label>@CELTLabels:OriginCountryRegionCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CommodityCode</Name>
+			<Label>@CELTLabels:CommodityCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CommodityClassCode</Name>
+			<Label>@CELTLabels:CommodityClassCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CommodityListID</Name>
+			<Label>@CELTLabels:CommodityListID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CommodityListVersionID</Name>
+			<Label>@CELTLabels:CommodityListVersionID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TaxCategoryCode</Name>
+			<Label>@CELTLabels:TaxCategory</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>TaxPercent</Name>
+			<Label>@CELTLabels:TaxPercent</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PriceAmount</Name>
+			<Label>@CELTLabels:UnitPrice</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PriceBaseQuantity</Name>
+					<Label>@CELTLabels:PriceBaseQuantity</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PriceBaseUnitCode</Name>
+			<Label>@CELTLabels:PriceBaseUnitCode</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PriceBaseAmount</Name>
+					<Label>@CELTLabels:PriceBaseAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ItemPriceExtAmount</Name>
+					<Label>@CELTLabels:ItemPriceExtAmount</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>ItemPriceTaxTotal</Name>
+					<Label>@CELTLabels:ItemPriceTaxTotal</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PriceAllowanceIndicator</Name>
+			<Label>@CELTLabels:PriceAllowanceIndicator</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldReal">
+			<Name>PriceAllowanceAmount</Name>
+					<Label>@CELTLabels:PriceAllowanceAmount</Label>
+</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>DocumentNoIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>DocumentNo</DataField>
+				</AxTableIndexField>
+				<AxTableIndexField>
+					<DataField>LineNo</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations>
+		<AxTableRelation xmlns="">
+			<Name>CLREInvoiceAPHeader</Name>
+			<Cardinality>ZeroMore</Cardinality>
+			<RelatedTable>CLREInvoiceAPHeader</RelatedTable>
+			<RelatedTableCardinality>ZeroOne</RelatedTableCardinality>
+			<RelationshipType>Association</RelationshipType>
+			<Constraints>
+				<AxTableRelationConstraint xmlns=""
+					i:type="AxTableRelationConstraintField">
+					<Name>DocumentNo</Name>
+					<Field>DocumentNo</Field>
+					<RelatedField>DocumentNo</RelatedField>
+				</AxTableRelationConstraint>
+			</Constraints>
+		</AxTableRelation>
+	</Relations>
+	<StateMachines />
+</AxTable>

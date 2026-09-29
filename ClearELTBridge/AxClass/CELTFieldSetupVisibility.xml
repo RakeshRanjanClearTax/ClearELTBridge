@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTFieldSetupVisibility</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Applies the CELT field setup (E-Invoice > Setup > E-Invoice field setup) to the standard forms
+/// that carry CELT custom input controls. Every extension control follows the naming convention
+/// CELT_&lt;FieldNameWithoutCELT&gt; (e.g. CELT_AETransactionType binds CELTAETransactionType), so one
+/// generic pass over the form design hides exactly the controls whose field is disabled. Controls
+/// without a setup row (containers like CELT_EInvoiceTab, or new fields not seeded yet) stay
+/// visible - the setup can only hide, never break, a form.
+/// </summary>
+internal final class CELTFieldSetupVisibility
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>apply</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Hides every CELT_* control on the form whose field is disabled for the given area in the
+    /// field setup. Driven from the setup rows and resolved by control NAME (design().controlName
+    /// searches the whole design) - iterating design().controlNum() only walks top-level controls
+    /// and never reaches fields nested in FastTabs.
+    /// </summary>
+    /// <param name = "_sender">the form being opened</param>
+    /// <param name = "_area">the document area the form belongs to (Any = show when enabled anywhere)</param>
+    public static void apply(xFormRun _sender, CELTFieldArea _area = CELTFieldArea::Any)
+    {
+        CELTFieldSetup setup;
+        FormDesign     design = _sender.design();
+
+        while select FieldName, EnabledSales, EnabledPurchase, EnabledProject from setup
+        {
+            boolean enabled;
+
+            switch (_area)
+            {
+                case CELTFieldArea::Sales:
+                    enabled = setup.EnabledSales == NoYes::Yes;
+                    break;
+                case CELTFieldArea::Purchase:
+                    enabled = setup.EnabledPurchase == NoYes::Yes;
+                    break;
+                case CELTFieldArea::Project:
+                    enabled = setup.EnabledProject == NoYes::Yes;
+                    break;
+                default:
+                    enabled = setup.EnabledSales == NoYes::Yes
+                           || setup.EnabledPurchase == NoYes::Yes
+                           || setup.EnabledProject == NoYes::Yes;
+            }
+
+            if (!enabled)
+            {
+                // Field CELT<X> binds to control CELT_<X> by convention on every extended form.
+                FormControl control = design.controlName('CELT_' + subStr(setup.FieldName, 5, strLen(setup.FieldName) - 4));
+
+                if (control)
+                {
+                    control.visible(false);
+                }
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>salesTable_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(SalesTable), FormEventType::Initialized)]
+    public static void SalesTable_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Sales);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>purchTable_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(PurchTable), FormEventType::Initialized)]
+    public static void PurchTable_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Purchase);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>custFreeInvoice_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(CustFreeInvoice), FormEventType::Initialized)]
+    public static void CustFreeInvoice_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Sales);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>vendEditInvoice_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(VendEditInvoice), FormEventType::Initialized)]
+    public static void VendEditInvoice_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Purchase);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>projInvoiceProposalDetail_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(ProjInvoiceProposalDetail), FormEventType::Initialized)]
+    public static void ProjInvoiceProposalDetail_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Project);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>projInvoiceProposalDetailV2_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(ProjInvoiceProposalDetailV2), FormEventType::Initialized)]
+    public static void ProjInvoiceProposalDetailV2_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Project);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>custTable_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(CustTable), FormEventType::Initialized)]
+    public static void CustTable_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Sales);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>vendTable_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(VendTable), FormEventType::Initialized)]
+    public static void VendTable_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender, CELTFieldArea::Purchase);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>omLegalEntity_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(OMLegalEntity), FormEventType::Initialized)]
+    public static void OMLegalEntity_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ecoResProductDetailsExtended_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(EcoResProductDetailsExtended), FormEventType::Initialized)]
+    public static void EcoResProductDetailsExtended_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>taxTable_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(TaxTable), FormEventType::Initialized)]
+    public static void TaxTable_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logisticsPostalAddress_OnInitialized</Name>
+				<Source><![CDATA[
+    [FormEventHandler(formStr(LogisticsPostalAddress), FormEventType::Initialized)]
+    public static void LogisticsPostalAddress_OnInitialized(xFormRun sender, FormEventArgs e)
+    {
+        CELTFieldSetupVisibility::apply(sender);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

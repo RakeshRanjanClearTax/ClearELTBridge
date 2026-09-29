@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxFormExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>LogisticsPostalAddress.ClearELTBridge</Name>
+	<ControlModifications />
+	<Controls>
+		<AxFormExtensionControl xmlns="">
+			<Name>CELTEInvoiceGroupExt</Name>
+			<FormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>CELT_EInvoiceGroup</Name>
+				<Type>Group</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormCheckBoxControl">
+						<Name>CELT_AEFreeZoneIndicator</Name>
+						<Type>CheckBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CELTAEFreeZoneIndicator</DataField>
+						<DataSource>LogisticsPostalAddress</DataSource>
+					</AxFormControl>
+				</Controls>
+				<Caption>@CELTLabels:EInvoice</Caption>
+			</FormControl>
+			<Parent>GeneralTab</Parent>
+		</AxFormExtensionControl>
+	</Controls>
+	<DataSourceModifications />
+	<DataSourceReferences />
+	<DataSources />
+	<Parts />
+	<PropertyModifications />
+</AxFormExtension>

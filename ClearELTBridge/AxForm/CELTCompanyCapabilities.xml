@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTCompanyCapabilities</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTCompanyCapabilities extends FormRun
+{
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Seeds one unchecked row per real company on first open, so the admin only ticks boxes
+    /// instead of keying company ids; companies created later are topped up on the next open.
+    /// Each row commits on its own with a duplicate-key catch - two sessions opening the form
+    /// at the same time both pass the exist() check, and the loser must skip, not crash.
+    /// </summary>
+    public void init()
+    {
+        DataArea              dataArea;
+        CELTCompanyCapability capability;
+
+        while select Id from dataArea
+            where dataArea.isVirtual == NoYes::No
+        {
+            if (!CELTCompanyCapability::exist(dataArea.Id))
+            {
+                try
+                {
+                    ttsbegin;
+                    capability.clear();
+                    capability.CompanyId = dataArea.Id;
+                    capability.insert();
+                    ttscommit;
+                }
+                catch (Exception::DuplicateKeyException)
+                {
+                    // Another session seeded this company between the check and the insert.
+                }
+            }
+        }
+
+        super();
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CELTCompanyCapability</Name>
+			<Table>CELTCompanyCapability</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:CompanyCapabilities</Caption>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_CompanyId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CompanyId</DataField>
+						<DataSource>CELTCompanyCapability</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormCheckBoxControl">
+						<Name>Grid_LifecycleActions</Name>
+						<Type>CheckBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>LifecycleActions</DataField>
+						<DataSource>CELTCompanyCapability</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormCheckBoxControl">
+						<Name>Grid_SelfBilling</Name>
+						<Type>CheckBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>SelfBilling</DataField>
+						<DataSource>CELTCompanyCapability</DataSource>
+					</AxFormControl>
+				</Controls>
+				<DataSource>CELTCompanyCapability</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

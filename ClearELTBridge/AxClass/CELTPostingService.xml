@@ -1,0 +1,1457 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTPostingService</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// E-invoice writeback processor. Handles the IRN_WRITEBACK payload in both observed shapes:
+///  1. postingInfo shape (production): { idempotencyKey, postingType, postingInfo: { companyCode,
+///     insertTable: [ { name, data: [ { recordId, values: [ { name, type, value } ] } ] } ] } }
+///  2. root shape (legacy sync spec): { idempotencyKey, insertTable: [ { name,
+///     data: [ { name, type, value } ] } ] }
+/// Rows land in ClearTaxEInvoiceResponseTable via an upsert keyed on UniqueId (incoming AP/AR
+/// documents via an upsert keyed on DocumentNo with their lines and VAT rows replaced), inside
+/// changecompany(postingInfo.companyCode) when supplied. After landing, the invoice journals are
+/// stamped (CustInvoiceJour by InvoiceId, ProjInvoiceJour by ProjInvoiceId) using the payload's
+/// InvoiceId, with Success/ErrorDetails deciding the e-invoice status. Vendor invoices are stamped on the
+/// Clear identifiers (CELTUniqueId / CELTDocumentId) written by the sync request that raised them - never on
+/// the vendor-assigned invoice number. The RecId and company of the last landed writeback row are exposed so
+/// that sync caller can stamp the exact record it generated.
+/// </summary>
+internal final class CELTPostingService
+{
+    private CELTLogger  logger;
+    private str         idempotencyKey;
+    private Set         resetDocuments;
+    private RefRecId    lastWritebackRecId;
+    private DataAreaId  lastWritebackCompany;
+    private int         lastWritebackCount;
+    private TableId     originTableId;
+    private boolean     companyIsAmbiguous;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new(CELTLogger _logger = new CELTLogger())
+    {
+        logger = _logger;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parseWriteBack</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Parses one writeback JSON document and lands its insertTable rows.
+    /// </summary>
+    /// <param name = "_input">writeback JSON (one document, not NDJSON)</param>
+    /// <param name = "_requireCompanyMatch">fail the payload when its companyCode does not resolve
+    /// to a legal entity here (async batch processing), instead of landing in the current company</param>
+    /// <param name = "_defaultCompany">company to land in when the payload carries no companyCode - the company a
+    /// sync request was raised from; blank = resolve it from the referenced document</param>
+    /// <returns>true when every table landed successfully</returns>
+    public boolean parseWriteBack(str _input, boolean _requireCompanyMatch = false, SelectableDataArea _defaultCompany = '')
+    {
+        boolean          ok;
+        str              companyCode;
+        DataArea         dataArea;
+        System.Exception clrEx;
+
+        idempotencyKey = '';
+        lastWritebackRecId   = 0;
+        lastWritebackCount   = 0;
+        lastWritebackCompany = '';
+        companyIsAmbiguous   = false;
+        resetDocuments = new Set(Types::String);
+
+        if (_input == '')
+        {
+            logger.logErrorMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                'Empty writeback payload.');
+            return false;
+        }
+
+        try
+        {
+            logger.logInfoMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                'Write back to ERP started.', _input);
+
+            Newtonsoft.Json.Linq.JObject root = Newtonsoft.Json.Linq.JObject::Parse(_input);
+
+            // insertTable / idempotencyKey can sit at the root (legacy sync spec) or under
+            // postingInfo (production payloads).
+            Newtonsoft.Json.Linq.JArray  tablesArr   = root.get_Item(CELTConstants::wInsertTable) as Newtonsoft.Json.Linq.JArray;
+            Newtonsoft.Json.Linq.JObject postingInfo = root.get_Item('postingInfo') as Newtonsoft.Json.Linq.JObject;
+
+            idempotencyKey = this.tokenToStr(root.get_Item(CELTConstants::wIdempotencyKey));
+
+            if (postingInfo != null)
+            {
+                companyCode = strLRTrim(this.tokenToStr(postingInfo.get_Item(CELTConstants::pCompanyCode)));
+
+                if (idempotencyKey == '')
+                {
+                    idempotencyKey = this.tokenToStr(postingInfo.get_Item(CELTConstants::wIdempotencyKey));
+                }
+
+                if (tablesArr == null || tablesArr.get_Count() == 0)
+                {
+                    tablesArr = postingInfo.get_Item(CELTConstants::wInsertTable) as Newtonsoft.Json.Linq.JArray;
+                }
+            }
+
+            if (tablesArr == null || tablesArr.get_Count() == 0)
+            {
+                logger.logWarningMessage(
+                    classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                    'Writeback contains no insertTable entries.', idempotencyKey);
+                return false;
+            }
+
+            // Validate the payload company before switching; an unknown id would raise a kernel error.
+            if (companyCode != '')
+            {
+                select firstonly RecId from dataArea
+                    where dataArea.id == companyCode;
+
+                if (!dataArea.RecId)
+                {
+                    if (_requireCompanyMatch)
+                    {
+                        // Async batch: the session company is arbitrary, so landing here would put
+                        // the rows in the wrong legal entity while acking success. Fail instead -
+                        // nothing has been inserted yet, so a retry after fixing the config is clean.
+                        logger.logErrorMessage(
+                            classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                            strFmt('Company %1 from the writeback does not exist here - payload rejected.', companyCode),
+                            idempotencyKey);
+                        return false;
+                    }
+
+                    // Interactive sync: the user triggered the flow from the correct company, so
+                    // an unresolved code falls back to the current company with a warning.
+                    logger.logWarningMessage(
+                        classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                        strFmt('Company %1 from the writeback does not exist here - processing in %2.', companyCode, curExt()),
+                        idempotencyKey);
+                    companyCode = '';
+                }
+            }
+
+            // No companyCode in the payload: land in the company that owns the referenced document,
+            // not in whatever company this session or batch happens to run in.
+            if (companyCode == '' && _defaultCompany != '')
+            {
+                // Sync reply for a request raised from a known company: land where the request came from,
+                // never in a company guessed from a (non-unique) invoice number.
+                companyCode = _defaultCompany;
+            }
+            if (companyCode == '')
+            {
+                companyCode = this.resolveCompanyFromTables(tablesArr);
+
+                if (companyCode != '' && companyCode != curExt())
+                {
+                    logger.logInfoMessage(
+                        classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                        strFmt('Writeback carries no companyCode - landing in %1, the company of the referenced document.', companyCode),
+                        idempotencyKey);
+                }
+            }
+            if (companyCode != '' && companyCode != curExt())
+            {
+                changecompany (companyCode)
+                {
+                    ok = this.processTables(tablesArr);
+                }
+            }
+            else
+            {
+                ok = this.processTables(tablesArr);
+            }
+
+            logger.logInfoMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                ok
+                    ? strFmt('Write back completed successfully for %1.', idempotencyKey)
+                    : strFmt('Write back completed with errors for %1.', idempotencyKey));
+
+            return ok;
+        }
+        catch (Exception::Error)
+        {
+            logger.logErrorMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                'Writeback failed with an X++ error.', idempotencyKey != '' ? idempotencyKey : _input);
+            return false;
+        }
+        catch (clrEx)
+        {
+            logger.logErrorMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, parseWriteBack),
+                clrEx.Message, idempotencyKey != '' ? idempotencyKey : _input);
+            return false;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>resolveCompanyFromTables</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The legal entity a writeback belongs to when the payload carries no companyCode: the
+    /// company of the document it refers to. Without this, a blank companyCode lands every row in
+    /// whichever company the Get-status batch happens to run in, so one entity's response log
+    /// fills up with another entity's documents. Looks at the first row's document keys
+    /// (InvoiceId / InvoiceNumber for the response table, DocumentNo for incoming purchase
+    /// headers) and finds the owning company across all legal entities.
+    /// </summary>
+    /// <param name = "_tablesArr">the payload's insertTable array</param>
+    /// <returns>owning company id, or empty when no referenced document exists anywhere</returns>
+    private str resolveCompanyFromTables(Newtonsoft.Json.Linq.JArray _tablesArr)
+    {
+        CustInvoiceJour     custInvoiceJour;
+        VendInvoiceJour     vendInvoiceJour;
+        ProjInvoiceJour     projInvoiceJour;
+        CLREInvoiceAPHeader apHeader;
+        CLREInvoiceARHeader arHeader;
+        ClearTaxEInvoiceResponseTable writebackRow;
+        Set                 uniqueIds = new Set(Types::String);
+        Set                 documentIds = new Set(Types::String);
+        SetEnumerator       uidEnum;
+        SetEnumerator       didEnum;
+        Set                 keys = new Set(Types::String);
+        SetEnumerator       keyEnum;
+        int                 t, i;
+
+        if (_tablesArr == null)
+        {
+            return '';
+        }
+
+        // Collect document keys from the first row of every table in the payload.
+        for (t = 0; t < _tablesArr.get_Count(); t++)
+        {
+            Newtonsoft.Json.Linq.JObject tableObj = _tablesArr.get_Item(t) as Newtonsoft.Json.Linq.JObject;
+            if (tableObj == null)
+            {
+                continue;
+            }
+
+            Newtonsoft.Json.Linq.JArray dataArr = tableObj.get_Item(CELTConstants::wData) as Newtonsoft.Json.Linq.JArray;
+            if (dataArr == null || dataArr.get_Count() == 0)
+            {
+                continue;
+            }
+
+            // Record shape ({ values: [...] }) or flat value-entry list.
+            Newtonsoft.Json.Linq.JArray  valuesArr = dataArr;
+            Newtonsoft.Json.Linq.JObject firstObj  = dataArr.get_Item(0) as Newtonsoft.Json.Linq.JObject;
+            if (firstObj != null && (firstObj.get_Item('values') as Newtonsoft.Json.Linq.JArray) != null)
+            {
+                valuesArr = firstObj.get_Item('values') as Newtonsoft.Json.Linq.JArray;
+            }
+
+            for (i = 0; i < valuesArr.get_Count(); i++)
+            {
+                Newtonsoft.Json.Linq.JObject valObj = valuesArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+                if (valObj == null)
+                {
+                    continue;
+                }
+
+                str entryName  = strUpr(this.tokenToStr(valObj.get_Item(CELTConstants::wName)));
+                str entryValue = strLRTrim(this.tokenToStr(valObj.get_Item(CELTConstants::wValue)));
+
+                if (entryValue != ''
+                    && (entryName == 'INVOICEID' || entryName == 'INVOICENUMBER' || entryName == 'DOCUMENTNO'))
+                {
+                    keys.add(entryValue);
+                }
+                if (entryValue != '' && entryName == 'UNIQUEID')
+                {
+                    uniqueIds.add(entryValue);
+                }
+                if (entryValue != '' && entryName == 'DOCUMENTID')
+                {
+                    documentIds.add(entryValue);
+                }
+            }
+        }
+
+        // A Clear UniqueId identifies exactly one document, but not every record carrying it is
+        // trustworthy evidence of the owning company. A JOURNAL stamp is: it is only ever written in the
+        // company that raised the request or matched the identifier, so those are probed first. A
+        // response-table row is not: an earlier delivery that could not be resolved lands its row in an
+        // arbitrary company. Routing to that row still keeps redeliveries together with it, but the
+        // company it implies must never go on to authorise number-based stamping.
+        uidEnum = uniqueIds.getEnumerator();
+        while (uidEnum.moveNext())
+        {
+            str uid = uidEnum.current();
+            select firstonly crossCompany DataAreaId from vendInvoiceJour
+                where vendInvoiceJour.CELTUniqueId == uid;
+            if (vendInvoiceJour.DataAreaId)
+            {
+                return vendInvoiceJour.DataAreaId;
+            }
+            select firstonly crossCompany DataAreaId from custInvoiceJour
+                where custInvoiceJour.CELTUniqueId == uid;
+            if (custInvoiceJour.DataAreaId)
+            {
+                return custInvoiceJour.DataAreaId;
+            }
+            select firstonly crossCompany DataAreaId from projInvoiceJour
+                where projInvoiceJour.CELTUniqueId == uid;
+            if (projInvoiceJour.DataAreaId)
+            {
+                return projInvoiceJour.DataAreaId;
+            }
+            select firstonly crossCompany DataAreaId from writebackRow
+                where writebackRow.UniqueId == uid;
+            if (writebackRow.DataAreaId)
+            {
+                companyIsAmbiguous = true;
+                return writebackRow.DataAreaId;
+            }
+        }
+        // Clear's DocumentId is the only identifier an async status document carries. Same trust rule as
+        // above: journal stamps decide the company, a response-table row only routes.
+        didEnum = documentIds.getEnumerator();
+        while (didEnum.moveNext())
+        {
+            str did = didEnum.current();
+            select firstonly crossCompany DataAreaId from vendInvoiceJour
+                where vendInvoiceJour.CELTDocumentId == did;
+            if (vendInvoiceJour.DataAreaId)
+            {
+                return vendInvoiceJour.DataAreaId;
+            }
+            select firstonly crossCompany DataAreaId from custInvoiceJour
+                where custInvoiceJour.CELTDocumentId == did;
+            if (custInvoiceJour.DataAreaId)
+            {
+                return custInvoiceJour.DataAreaId;
+            }
+            select firstonly crossCompany DataAreaId from projInvoiceJour
+                where projInvoiceJour.CELTDocumentId == did;
+            if (projInvoiceJour.DataAreaId)
+            {
+                return projInvoiceJour.DataAreaId;
+            }
+            select firstonly crossCompany DataAreaId from writebackRow
+                where writebackRow.DocumentId == did;
+            if (writebackRow.DataAreaId)
+            {
+                companyIsAmbiguous = true;
+                return writebackRow.DataAreaId;
+            }
+        }
+        // Fall back to the referenced document number - but only when it is unambiguous. The same
+        // invoice number legitimately exists in several legal entities (per-company number sequences,
+        // vendor-assigned purchase numbers), and picking the first match would land the payload in, and
+        // stamp, the wrong entity's invoice. An ambiguous or unresolvable number leaves the company
+        // unresolved and marks it ambiguous, which also bars number-based stamping in updateJournals.
+        keyEnum = keys.getEnumerator();
+        while (keyEnum.moveNext())
+        {
+            str key = keyEnum.current();
+            Set companies = new Set(Types::String);
+
+            while select crossCompany DataAreaId from writebackRow
+                where writebackRow.InvoiceId == key
+            {
+                companies.add(writebackRow.DataAreaId);
+            }
+            if (companies.elements() < 2)
+            {
+                while select crossCompany DataAreaId from custInvoiceJour
+                    where custInvoiceJour.InvoiceId == key
+                {
+                    companies.add(custInvoiceJour.DataAreaId);
+                }
+            }
+            if (companies.elements() < 2)
+            {
+                while select crossCompany DataAreaId from vendInvoiceJour
+                    where vendInvoiceJour.InvoiceId == key
+                {
+                    companies.add(vendInvoiceJour.DataAreaId);
+                }
+            }
+            if (companies.elements() < 2)
+            {
+                while select crossCompany DataAreaId from projInvoiceJour
+                    where projInvoiceJour.ProjInvoiceId == key
+                {
+                    companies.add(projInvoiceJour.DataAreaId);
+                }
+            }
+            if (companies.elements() < 2)
+            {
+                while select crossCompany DataAreaId from apHeader
+                    where apHeader.DocumentNo == key
+                {
+                    companies.add(apHeader.DataAreaId);
+                }
+            }
+            if (companies.elements() < 2)
+            {
+                while select crossCompany DataAreaId from arHeader
+                    where arHeader.DocumentNo == key
+                {
+                    companies.add(arHeader.DataAreaId);
+                }
+            }
+
+            if (companies.elements() == 1)
+            {
+                SetEnumerator compEnum = companies.getEnumerator();
+                compEnum.moveNext();
+                return compEnum.current();
+            }
+
+            if (companies.elements() > 1)
+            {
+                // Proven ambiguous: never let a later key re-authorise number-based stamping.
+                companyIsAmbiguous = true;
+
+                logger.logWarningMessage(
+                    classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, resolveCompanyFromTables),
+                    strFmt('Document number %1 exists in %2 legal entities - the writeback company cannot be resolved from it.',
+                        key, companies.elements()),
+                    idempotencyKey);
+            }
+        }
+
+        // Nothing identified the owning company: the payload will be processed in the current company,
+        // which for an async batch is arbitrary - so it must not stamp anything by number.
+        companyIsAmbiguous = true;
+        return '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getIdempotencyKey</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The idempotencyKey of the most recently parsed writeback document (empty when the
+    /// document carried none or did not parse).
+    /// </summary>
+    /// <returns>idempotency key</returns>
+    public str getIdempotencyKey()
+    {
+        return idempotencyKey;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processTables</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Lands every insertTable entry.
+    /// </summary>
+    private boolean processTables(Newtonsoft.Json.Linq.JArray _tablesArr)
+    {
+        boolean ok = true;
+        int     i;
+
+        for (i = 0; i < _tablesArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject tableObj = _tablesArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (tableObj != null)
+            {
+                ok = this.processTable(tableObj) && ok;
+            }
+        }
+
+        return ok;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processTable</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Lands one insertTable entry. The data array holds either records ({ recordId, values: [...] },
+    /// production shape) or one flat list of value entries (legacy shape); each record is upserted.
+    /// </summary>
+    private boolean processTable(Newtonsoft.Json.Linq.JObject _tableObj)
+    {
+        boolean ok = true;
+        str tableName = this.tokenToStr(_tableObj.get_Item(CELTConstants::wName));
+
+        // The backend may still name the original model's landing table.
+        if (tableName == CELTConstants::wLegacyWritebackTable)
+        {
+            tableName = CELTConstants::wBridgeWritebackTable;
+        }
+
+        TableId tableId = tableName2Id(tableName);
+        if (tableId == 0)
+        {
+            logger.logErrorMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, processTable),
+                strFmt('Unknown writeback table %1.', tableName), idempotencyKey);
+            return false;
+        }
+
+        Newtonsoft.Json.Linq.JArray dataArr = _tableObj.get_Item(CELTConstants::wData) as Newtonsoft.Json.Linq.JArray;
+        if (dataArr == null || dataArr.get_Count() == 0)
+        {
+            // An empty data array is a valid no-op (e.g. an invoice without VAT breakdown rows) -
+            // failing it would flip the whole payload to error and invite duplicating retries.
+            logger.logInfoMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, processTable),
+                strFmt('Writeback table %1 has no data rows - skipped.', tableName), idempotencyKey);
+            return true;
+        }
+
+        // Shape detection: record entries carry a 'values' array; flat entries carry name/type/value.
+        Newtonsoft.Json.Linq.JObject firstObj = dataArr.get_Item(0) as Newtonsoft.Json.Linq.JObject;
+
+        if (firstObj != null && (firstObj.get_Item('values') as Newtonsoft.Json.Linq.JArray) != null)
+        {
+            int r;
+            for (r = 0; r < dataArr.get_Count(); r++)
+            {
+                Newtonsoft.Json.Linq.JObject recordObj = dataArr.get_Item(r) as Newtonsoft.Json.Linq.JObject;
+                if (recordObj != null)
+                {
+                    ok = this.processRecord(tableId, tableName, recordObj.get_Item('values') as Newtonsoft.Json.Linq.JArray) && ok;
+                }
+            }
+        }
+        else
+        {
+            ok = this.processRecord(tableId, tableName, dataArr);
+        }
+
+        return ok;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processRecord</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds one record from its value entries and upserts it. VALUE entries set fields;
+    /// TABLE_METHOD validateWrite is honoured; the upsert itself always runs.
+    /// </summary>
+    private boolean processRecord(TableId _tableId, str _tableName, Newtonsoft.Json.Linq.JArray _valuesArr)
+    {
+        DictTable dictTable = new DictTable(_tableId);
+        Common    common    = dictTable.makeRecord();
+        Set       sentFields = new Set(Types::Integer);
+        int       i;
+        int       populated;
+        str       receivedNames;
+        str       offTableNames;
+
+        if (_valuesArr == null || _valuesArr.get_Count() == 0)
+        {
+            return false;
+        }
+
+        FieldId idempotencyFieldId = fieldName2Id(_tableId, CELTConstants::wFieldIdempotencyKey);
+        if (idempotencyFieldId != 0 && idempotencyKey != '')
+        {
+            common.(idempotencyFieldId) = idempotencyKey;
+            sentFields.add(idempotencyFieldId);
+        }
+
+        for (i = 0; i < _valuesArr.get_Count(); i++)
+        {
+            Newtonsoft.Json.Linq.JObject valObj = _valuesArr.get_Item(i) as Newtonsoft.Json.Linq.JObject;
+            if (valObj == null)
+            {
+                continue;
+            }
+
+            str entryType = strUpr(this.tokenToStr(valObj.get_Item(CELTConstants::wType)));
+            str entryName = this.tokenToStr(valObj.get_Item(CELTConstants::wName));
+
+            if (entryType == CELTConstants::wTypeValue)
+            {
+                str     entryValue = this.tokenToStr(valObj.get_Item(CELTConstants::wValue));
+                FieldId setFieldId = this.setTypedValue(common, _tableId, entryName, entryValue);
+
+                receivedNames += (receivedNames != '' ? ', ' : '') + entryName;
+
+                if (setFieldId != 0)
+                {
+                    sentFields.add(setFieldId);
+
+                    if (entryValue != '')
+                    {
+                        populated++;
+                    }
+                }
+                else if (entryValue != '')
+                {
+                    offTableNames += (offTableNames != '' ? ', ' : '') + entryName;
+                }
+            }
+            else if (entryType == CELTConstants::wTypeTableMethod && entryName == CELTConstants::wMethodValidateWrite)
+            {
+                if (!common.validateWrite())
+                {
+                    logger.logErrorMessage(
+                        classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, processRecord),
+                        strFmt('validateWrite failed for %1.', _tableName), idempotencyKey);
+                    return false;
+                }
+            }
+        }
+
+        if (populated == 0)
+        {
+            // Clear has been seen to deliver writebacks whose every value is blank (no document
+            // id, no invoice id, no status). Landing them creates rows that carry nothing and
+            // clutter the response log, so they are acknowledged and dropped instead.
+            logger.logWarningMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, processRecord),
+                offTableNames != ''
+                    ? strFmt('Writeback record for %1: no field of the table received a value - nothing landed. Populated fields that do not exist on the table: %2. Fields received: %3', _tableName, offTableNames, receivedNames)
+                    : strFmt('Writeback record for %1: every value was empty - nothing landed. Fields received: %2', _tableName, receivedNames),
+                idempotencyKey);
+            return true;
+        }
+
+        this.upsertRecord(common, _tableId, sentFields);
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>upsertRecord</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Upsert: one row per invoice keyed on UniqueId; a retry ENRICHES the existing row - only the
+    /// fields the current payload actually sent are copied, so a follow-up document with a smaller
+    /// field set never blanks previously landed values. Non-writeback tables get a plain insert.
+    /// </summary>
+    private void upsertRecord(Common _common, TableId _tableId, Set _sentFields)
+    {
+        if (_tableId == tableNum(ClearTaxEInvoiceResponseTable))
+        {
+            ClearTaxEInvoiceResponseTable row = _common as ClearTaxEInvoiceResponseTable;
+            ClearTaxEInvoiceResponseTable existing;
+
+            ttsbegin;
+            if (row.UniqueId != '')
+            {
+                select firstonly forupdate existing
+                    where existing.UniqueId == row.UniqueId;
+            }
+            else if (row.DocumentId != '')
+            {
+                // Async status documents carry no UniqueId: enrich the newest row of the same Clear
+                // document instead of adding one row per redelivery.
+                select firstonly forupdate existing
+                    order by CreatedDateTime desc, RecId desc
+                    where existing.DocumentId == row.DocumentId;
+            }
+
+            if (existing.RecId != 0)
+            {
+                SetEnumerator se = _sentFields.getEnumerator();
+                while (se.moveNext())
+                {
+                    FieldId sentFieldId = se.current();
+                    existing.(sentFieldId) = row.(sentFieldId);
+                }
+                // A status document that omits the Success flag still decides the outcome: derive it from what
+                // it did send (STATUS / error text), so a later REJECTED can flip an earlier SUBMITTED - and a
+                // later ACCEPTED can flip an earlier failure. Evaluated on the incoming values, not the merge.
+                if (!_sentFields.in(fieldNum(ClearTaxEInvoiceResponseTable, Success)))
+                {
+                    boolean statusSent    = _sentFields.in(fieldNum(ClearTaxEInvoiceResponseTable, STATUS));
+                    boolean errorSent     = _sentFields.in(fieldNum(ClearTaxEInvoiceResponseTable, ERROR))
+                                         || _sentFields.in(fieldNum(ClearTaxEInvoiceResponseTable, ErrorDetails));
+                    str     incomingError = row.ErrorDetails != '' ? row.ErrorDetails : row.ERROR;
+
+                    if ((statusSent && CELTPostingService::statusMeansFailure(row.STATUS)) || (errorSent && incomingError != ''))
+                    {
+                        existing.Success = 'FAILED';
+                    }
+                    else if (statusSent && CELTPostingService::statusMeansSuccess(row.STATUS))
+                    {
+                        existing.Success = 'SUBMITTED';
+                    }
+                }
+                this.mirrorDocumentNumber(existing);
+                existing.update();
+                lastWritebackRecId   = existing.RecId;
+                lastWritebackCompany = existing.DataAreaId;
+                lastWritebackCount++;
+                this.updateJournals(existing);
+            }
+            else
+            {
+                this.mirrorDocumentNumber(row);
+                row.insert();
+                lastWritebackRecId   = row.RecId;
+                lastWritebackCompany = row.DataAreaId;
+                lastWritebackCount++;
+                this.updateJournals(row);
+            }
+            ttscommit;
+        }
+        else if (_tableId == tableNum(CLREInvoiceAPHeader) || _tableId == tableNum(CLREInvoiceARHeader))
+        {
+            this.upsertIncomingHeader(_common, _tableId, _sentFields);
+        }
+        else if (_tableId == tableNum(CLREInvoiceAPLine) || _tableId == tableNum(CLREInvoiceAPVATBrkdn))
+        {
+            this.resetIncomingChildren(tableNum(CLREInvoiceAPHeader), _common.(fieldName2Id(_tableId, fieldStr(CLREInvoiceAPLine, DocumentNo))));
+            ttsbegin;
+            _common.insert();
+            ttscommit;
+        }
+        else if (_tableId == tableNum(CLREInvoiceARLine) || _tableId == tableNum(CLREInvoiceARVATBrkdn))
+        {
+            this.resetIncomingChildren(tableNum(CLREInvoiceARHeader), _common.(fieldName2Id(_tableId, fieldStr(CLREInvoiceARLine, DocumentNo))));
+            ttsbegin;
+            _common.insert();
+            ttscommit;
+        }
+        else
+        {
+            ttsbegin;
+            _common.insert();
+            ttscommit;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>upsertIncomingHeader</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Incoming e-invoice header (AP or AR): one row per document number. A redelivered or replayed
+    /// payload enriches the existing header with the fields it carries - so locally stamped values
+    /// (lifecycle status, last action, Peppol status) survive - and its line and VAT rows are
+    /// replaced instead of duplicated.
+    /// </summary>
+    private void upsertIncomingHeader(Common _row, TableId _tableId, Set _sentFields)
+    {
+        DictTable   dictTable   = new DictTable(_tableId);
+        Common      existing    = dictTable.makeRecord();
+        FieldId     docFieldId  = fieldName2Id(_tableId, fieldStr(CLREInvoiceAPHeader, DocumentNo));
+        str         documentNo  = _row.(docFieldId);
+
+        ttsbegin;
+        if (documentNo != '')
+        {
+            select firstonly forupdate existing
+                where existing.(docFieldId) == documentNo;
+        }
+
+        if (existing.RecId != 0)
+        {
+            SetEnumerator se = _sentFields.getEnumerator();
+            while (se.moveNext())
+            {
+                FieldId sentFieldId = se.current();
+                existing.(sentFieldId) = _row.(sentFieldId);
+            }
+            existing.update();
+        }
+        else
+        {
+            _row.insert();
+        }
+
+        this.resetIncomingChildren(_tableId, documentNo);
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>resetIncomingChildren</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Deletes the line and VAT-breakdown rows of an incoming document the first time this payload
+    /// touches that document, so a redelivery replaces them rather than appending a second set.
+    /// </summary>
+    /// <param name = "_headerTableId">CLREInvoiceAPHeader or CLREInvoiceARHeader</param>
+    /// <param name = "_documentNo">document number of the incoming e-invoice</param>
+    private void resetIncomingChildren(TableId _headerTableId, str _documentNo)
+    {
+        TableId lineTableId = _headerTableId == tableNum(CLREInvoiceAPHeader) ? tableNum(CLREInvoiceAPLine)     : tableNum(CLREInvoiceARLine);
+        TableId vatTableId  = _headerTableId == tableNum(CLREInvoiceAPHeader) ? tableNum(CLREInvoiceAPVATBrkdn) : tableNum(CLREInvoiceARVATBrkdn);
+        str     key         = strFmt('%1|%2', _headerTableId, _documentNo);
+
+        if (_documentNo == '' || resetDocuments.in(key))
+        {
+            return;
+        }
+
+        this.deleteByDocumentNo(lineTableId, _documentNo);
+        this.deleteByDocumentNo(vatTableId,  _documentNo);
+        resetDocuments.add(key);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>deleteByDocumentNo</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Deletes every row of a landing table that belongs to one document number.
+    /// </summary>
+    private void deleteByDocumentNo(TableId _tableId, str _documentNo)
+    {
+        Common  buf        = new DictTable(_tableId).makeRecord();
+        FieldId docFieldId = fieldName2Id(_tableId, fieldStr(CLREInvoiceAPLine, DocumentNo));
+
+        ttsbegin;
+        while select forupdate buf
+            where buf.(docFieldId) == _documentNo
+        {
+            buf.delete();
+        }
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>writebackSucceeded</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a writeback row reports a successful submission. Clear's Success flag arrives as
+    /// SUBMITTED / FAILED (the sync reply) or as true / false (older configs); a status document
+    /// without the flag counts as success unless it carries an error. Shared by the journal
+    /// stamping and the list forms so both agree.
+    /// </summary>
+    /// <param name = "_row">writeback row</param>
+    /// <returns>true when the row means the e-invoice was accepted for submission</returns>
+    public static boolean writebackSucceeded(ClearTaxEInvoiceResponseTable _row)
+    {
+        str flag     = strLwr(strLRTrim(_row.Success));
+        str errorMsg = _row.ErrorDetails != '' ? _row.ErrorDetails : _row.ERROR;
+
+        switch (flag)
+        {
+            case 'true', 'submitted', 'success', 'successful', 'ok', 'accepted':
+                return true;
+            case 'false', 'failed', 'failure', 'error', 'rejected':
+                return false;
+        }
+
+        // No flag: a status document decides by its STATUS, then by the presence of an error.
+        if (CELTPostingService::statusMeansFailure(_row.STATUS))
+        {
+            return false;
+        }
+        if (CELTPostingService::statusMeansSuccess(_row.STATUS))
+        {
+            return true;
+        }
+        return errorMsg == '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>mirrorDocumentNumber</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Clear names the ERP invoice number twice: InvoiceId in the sync reply, InvoiceNumber in
+    /// the async writeback - same value, same row, only one populated at a time. Everything on
+    /// the invoice (journal stamping, response log, lifecycle actions) joins on InvoiceId, so a
+    /// document would be invisible to its own cockpit until the async writeback arrived. Fixed
+    /// at INGEST, not in the joins: whichever field arrived is copied into the blank one. It only
+    /// ever fills a blank from a populated value, so a genuine difference between the two would
+    /// survive to be seen rather than being silently flattened.
+    /// </summary>
+    /// <param name = "_row">the writeback row about to be written</param>
+    private void mirrorDocumentNumber(ClearTaxEInvoiceResponseTable _row)
+    {
+        if (_row.InvoiceId == '' && _row.InvoiceNumber != '')
+        {
+            _row.InvoiceId = _row.InvoiceNumber;
+        }
+        else if (_row.InvoiceNumber == '' && _row.InvoiceId != '')
+        {
+            _row.InvoiceNumber = _row.InvoiceId;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>updateJournals</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Stamps the invoice journals from the writeback row. Documents are matched on the Clear identifiers
+    /// recorded when the request was raised (CELTUniqueId, else CELTDocumentId) - never on an invoice
+    /// number, which customer invoices, vendor invoices (vendor-assigned, not unique) and inbound purchase
+    /// documents all share in the same column. The number is used only where it provably identifies the
+    /// document: an asynchronous document explicitly flagged as a sales flow whose number identifies exactly
+    /// one legal entity system-wide. A synchronous reply never relies on it - the caller stamps the exact
+    /// record that raised the request, by RecId. When the
+    /// identifiers belong to a journal in another legal entity, nothing here is stamped from the number.
+    /// </summary>
+    /// <param name = "_row">the landed writeback row</param>
+    private void updateJournals(ClearTaxEInvoiceResponseTable _row)
+    {
+        CustInvoiceJour     custJour;
+        ProjInvoiceJour     projJour;
+        VendInvoiceJour     vendJour;
+        CELTEInvoiceStatus  newStatus;
+        str                 erpInvoiceId;
+        str                 errorMsg;
+        str                 ambiguousNumber;
+        boolean             matched;
+        boolean             numberAllowed;
+
+        errorMsg  = _row.ErrorDetails != '' ? _row.ErrorDetails : _row.ERROR;
+        newStatus = CELTPostingService::writebackSucceeded(_row) ? CELTEInvoiceStatus::Submitted : CELTEInvoiceStatus::NotSubmitted;
+
+        // Poll-path log attribution: rows processed under a backend command are stamped with the
+        // document's own number, so the per-invoice log view also shows asynchronous processing.
+        str prevLogDocument = CELTLogger::documentId();
+        CELTLogger::documentId(_row.InvoiceId != '' ? _row.InvoiceId : _row.ErpDocNumber);
+
+        ttsbegin;
+
+        // 1) Identifier match - unique per document, so it is safe for every payload shape and family.
+        if (_row.UniqueId != '')
+        {
+            while select forupdate vendJour
+                where vendJour.CELTUniqueId == _row.UniqueId
+            {
+                if (_row.DocumentId != '')
+                {
+                    vendJour.CELTDocumentId = _row.DocumentId;
+                }
+                vendJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                vendJour.CELTEInvoiceStatus = newStatus;
+                vendJour.update();
+                matched = true;
+            }
+
+            while select forupdate custJour
+                where custJour.CELTUniqueId == _row.UniqueId
+            {
+                if (_row.DocumentId != '')
+                {
+                    custJour.CELTDocumentId = _row.DocumentId;
+                }
+                custJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                custJour.CELTEInvoiceStatus = newStatus;
+                custJour.update();
+                matched = true;
+            }
+
+            while select forupdate projJour
+                where projJour.CELTUniqueId == _row.UniqueId
+            {
+                if (_row.DocumentId != '')
+                {
+                    projJour.CELTDocumentId = _row.DocumentId;
+                }
+                projJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                projJour.CELTEInvoiceStatus = newStatus;
+                projJour.update();
+                matched = true;
+            }
+        }
+        else if (_row.DocumentId != '')
+        {
+            while select forupdate vendJour
+                where vendJour.CELTDocumentId == _row.DocumentId
+            {
+                vendJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                vendJour.CELTEInvoiceStatus = newStatus;
+                vendJour.update();
+                matched = true;
+            }
+
+            while select forupdate custJour
+                where custJour.CELTDocumentId == _row.DocumentId
+            {
+                custJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                custJour.CELTEInvoiceStatus = newStatus;
+                custJour.update();
+                matched = true;
+            }
+
+            while select forupdate projJour
+                where projJour.CELTDocumentId == _row.DocumentId
+            {
+                projJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                projJour.CELTEInvoiceStatus = newStatus;
+                projJour.update();
+                matched = true;
+            }
+        }
+
+        // 2) Number fallback, only where the number provably identifies the document.
+        erpInvoiceId = _row.InvoiceId != '' ? _row.InvoiceId : _row.DocumentId;
+
+        // A number may stamp only an ASYNC document: a synchronous reply is stamped on the exact record
+        // that raised it (CELTIntegrationSyncHelper.stampJournalFromLandedRow, by RecId), so this path must
+        // never be the thing a sync customer or project invoice depends on.
+        numberAllowed = originTableId == 0 && CELTPostingService::flowIsSales(_row);
+
+        // A company that could not be resolved is arbitrary - never stamp an invoice there by number.
+        numberAllowed = numberAllowed && !companyIsAmbiguous;
+
+        // Routing may have been decided by a DIFFERENT key, or by evidence never re-validated. The number
+        // that will actually do the stamping must itself identify this company and no other.
+        if (numberAllowed && !this.numberResolvesToThisCompanyOnly(erpInvoiceId))
+        {
+            numberAllowed   = false;
+            ambiguousNumber = erpInvoiceId;
+        }
+
+        if (!matched && numberAllowed && erpInvoiceId != '' && !this.identifierBelongsElsewhere(_row))
+        {
+            while select forupdate custJour
+                where custJour.InvoiceId == erpInvoiceId
+            {
+                // Identifiers only overwrite when the payload carries them - an identifier-less
+                // writeback must never blank a previous stamp.
+                if (_row.DocumentId != '')
+                {
+                    custJour.CELTDocumentId = _row.DocumentId;
+                }
+                if (_row.UniqueId != '')
+                {
+                    custJour.CELTUniqueId = _row.UniqueId;
+                }
+                custJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                custJour.CELTEInvoiceStatus = newStatus;
+                custJour.update();
+                matched = true;
+            }
+
+            while select forupdate projJour
+                where projJour.ProjInvoiceId == erpInvoiceId
+            {
+                if (_row.DocumentId != '')
+                {
+                    projJour.CELTDocumentId = _row.DocumentId;
+                }
+                if (_row.UniqueId != '')
+                {
+                    projJour.CELTUniqueId = _row.UniqueId;
+                }
+                projJour.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                projJour.CELTEInvoiceStatus = newStatus;
+                projJour.update();
+                matched = true;
+            }
+        }
+
+        ttscommit;
+
+        if (ambiguousNumber != '')
+        {
+            logger.logWarningMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, updateJournals),
+                strFmt('Invoice number %1 does not identify company %2 uniquely - no journal was stamped from it.',
+                    ambiguousNumber, curExt()),
+                idempotencyKey);
+        }
+
+        if (!matched)
+        {
+            // Not an error: an inbound document has no ERP journal, and a document whose journal lives in
+            // another legal entity is stamped by that company's own processing.
+            logger.logInfoMessage(
+                classStr(CELTPostingService) + '/' + methodStr(CELTPostingService, updateJournals),
+                strFmt('Writeback for document %1 (%2) stamped no invoice journal in %3.',
+                    _row.DocumentId != '' ? _row.DocumentId : erpInvoiceId, _row.UniqueId, curExt()),
+                idempotencyKey);
+        }
+
+        CELTLogger::documentId(prevLogDocument);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setTypedValue</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sets a field from its writeback string value with the original's conversion rules:
+    /// Date str2Date(321), UtcDateTime DateTimeUtil::parse, Time str2Time, ints str2Int,
+    /// Real str2Num, Enum str2Int, everything else assigned as string. Unknown fields skip.
+    /// </summary>
+    /// <returns>the field id that was set, or 0 when the field is not on the table</returns>
+    private FieldId setTypedValue(Common _common, TableId _tableId, str _fieldName, str _value)
+    {
+        FieldId fieldId = fieldName2Id(_tableId, _fieldName);
+        if (fieldId == 0)
+        {
+            return 0;   // field not on table (e.g. regime-specific extras) - skip
+        }
+
+        DictField dictField = new DictField(_tableId, fieldId);
+
+        switch (dictField.baseType())
+        {
+            case Types::Date:
+                _common.(fieldId) = str2Date(_value, 321);
+                break;
+            case Types::UtcDateTime:
+                _common.(fieldId) = _value != '' ? DateTimeUtil::parse(_value) : DateTimeUtil::minValue();
+                break;
+            case Types::Time:
+                // str2Time returns -1 for blank/invalid input; store a null time instead.
+                _common.(fieldId) = max(0, str2Time(_value));
+                break;
+            case Types::Integer:
+                _common.(fieldId) = str2Int(_value);
+                break;
+            case Types::Int64:
+                _common.(fieldId) = str2Int64(_value);
+                break;
+            case Types::Real:
+                _common.(fieldId) = CELTPostingService::str2RealInvariant(_value);
+                break;
+            case Types::Enum:
+                _common.(fieldId) = str2Int(_value);
+                break;
+            default:
+                _common.(fieldId) = _value;
+                break;
+        }
+
+        return fieldId;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>str2RealInvariant</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Parses a decimal string with the invariant culture - writeback amounts are always
+    /// dot-decimal, so a comma-decimal user locale must not misread them. Blank or invalid
+    /// input falls back to the session parser, then 0.
+    /// </summary>
+    /// <param name = "_value">decimal string from the writeback</param>
+    /// <returns>parsed value</returns>
+    private static real str2RealInvariant(str _value)
+    {
+        real result;
+
+        if (_value == '')
+        {
+            return 0;
+        }
+
+        try
+        {
+            result = System.Convert::ToDouble(_value, System.Globalization.CultureInfo::get_InvariantCulture());
+        }
+        catch
+        {
+            result = str2Num(_value);
+        }
+
+        return result;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>tokenToStr</Name>
+				<Source><![CDATA[
+    private str tokenToStr(Newtonsoft.Json.Linq.JToken _token)
+    {
+        return _token != null ? _token.ToString() : '';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getLastWritebackRecId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// RecId of the ClearTaxEInvoiceResponseTable row inserted or enriched by the most recent
+    /// parseWriteBack (0 when none landed). Lets a sync caller stamp the exact record it generated.
+    /// </summary>
+    /// <returns>landed writeback row RecId, or 0</returns>
+    public RefRecId getLastWritebackRecId()
+    {
+        return lastWritebackRecId;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getLastWritebackCompany</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Company the most recent writeback row landed in (blank when none landed).
+    /// </summary>
+    /// <returns>data area id</returns>
+    public DataAreaId getLastWritebackCompany()
+    {
+        return lastWritebackCompany;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>writebackExplicitlySucceeded</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a writeback row EXPLICITLY reports a successful submission (Success flag in the success
+    /// set). Unlike writebackSucceeded, a status document without the flag does not qualify - used where a
+    /// match on a non-unique invoice number must not be trusted on silence alone.
+    /// </summary>
+    /// <param name = "_row">writeback row</param>
+    /// <returns>true only when the Success flag itself says so</returns>
+    public static boolean writebackExplicitlySucceeded(ClearTaxEInvoiceResponseTable _row)
+    {
+        switch (strLwr(strLRTrim(_row.Success)))
+        {
+            case 'true', 'submitted', 'success', 'successful', 'ok', 'accepted':
+                return true;
+        }
+
+        return false;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setOriginTableId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Tells the service which journal family raised the sync request (e.g. VendInvoiceJour), so the
+    /// writeback stamps only that family and a colliding customer invoice number is never touched.
+    /// </summary>
+    /// <param name = "_tableId">journal table id; 0 when unknown (async status documents)</param>
+    public void setOriginTableId(TableId _tableId)
+    {
+        originTableId = _tableId;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>statusMeansFailure</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a writeback STATUS value denotes a failed submission.
+    /// </summary>
+    /// <param name = "_status">the STATUS text</param>
+    /// <returns>true for REJECTED / FAILED / CANCELLED / ERROR style statuses</returns>
+    public static boolean statusMeansFailure(str _status)
+    {
+        switch (strLwr(strLRTrim(_status)))
+        {
+            case 'rejected', 'failed', 'failure', 'error':
+                return true;
+        }
+
+        return false;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>statusMeansSuccess</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a writeback STATUS value denotes an accepted submission.
+    /// </summary>
+    /// <param name = "_status">the STATUS text</param>
+    /// <returns>true for SUBMITTED / VALIDATED / ACCEPTED style statuses</returns>
+    public static boolean statusMeansSuccess(str _status)
+    {
+        switch (strLwr(strLRTrim(_status)))
+        {
+            case 'submitted', 'validated', 'accepted', 'success', 'successful', 'ok':
+                return true;
+        }
+
+        return false;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>identifierBelongsElsewhere</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether the row's Clear identifiers already belong to an invoice journal in ANY legal entity.
+    /// When they do and nothing matched here, the document belongs to that company's journal and must not
+    /// be used to stamp a same-numbered invoice in this one.
+    /// </summary>
+    /// <param name = "_row">the landed writeback row</param>
+    /// <returns>true when some journal anywhere carries these identifiers</returns>
+    private boolean identifierBelongsElsewhere(ClearTaxEInvoiceResponseTable _row)
+    {
+        VendInvoiceJour vendJour;
+        CustInvoiceJour custJour;
+        ProjInvoiceJour projJour;
+
+        if (_row.UniqueId != '')
+        {
+            select firstonly crossCompany RecId from vendJour where vendJour.CELTUniqueId == _row.UniqueId;
+            select firstonly crossCompany RecId from custJour where custJour.CELTUniqueId == _row.UniqueId;
+            select firstonly crossCompany RecId from projJour where projJour.CELTUniqueId == _row.UniqueId;
+
+            return vendJour.RecId != 0 || custJour.RecId != 0 || projJour.RecId != 0;
+        }
+
+        if (_row.DocumentId != '')
+        {
+            select firstonly crossCompany RecId from vendJour where vendJour.CELTDocumentId == _row.DocumentId;
+            select firstonly crossCompany RecId from custJour where custJour.CELTDocumentId == _row.DocumentId;
+            select firstonly crossCompany RecId from projJour where projJour.CELTDocumentId == _row.DocumentId;
+
+            return vendJour.RecId != 0 || custJour.RecId != 0 || projJour.RecId != 0;
+        }
+
+        return false;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>flowIsSales</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a writeback row is explicitly a sales-side document. Clear stamps Flow / EInvoiceType on
+    /// the documents it returns asynchronously (SALES, SALES_B2B_EREPORT, PURCHASE, SELF-BILLED), which is
+    /// what lets an async status document be matched by invoice number without a purchase-side document
+    /// ever reaching a same-numbered customer invoice. A blank flow is not a sales document.
+    /// </summary>
+    /// <param name = "_row">writeback row</param>
+    /// <returns>true when the row is flagged as a sales flow</returns>
+    public static boolean flowIsSales(ClearTaxEInvoiceResponseTable _row)
+    {
+        str flow = strUpr(_row.Flow) + '|' + strUpr(_row.EInvoiceType);
+
+        if (strScan(flow, 'PURCHASE', 1, strLen(flow)) > 0 || strScan(flow, 'SELF', 1, strLen(flow)) > 0)
+        {
+            return false;
+        }
+
+        return strScan(flow, 'SALES', 1, strLen(flow)) > 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>numberResolvesToThisCompanyOnly</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a document number identifies exactly one legal entity system-wide, and that entity is the
+    /// one this writeback is being processed in. This is checked at the point of use, on the very number
+    /// that is about to stamp a journal - not on whatever key happened to resolve the company earlier -
+    /// because routing may have been decided by a different key or by evidence that was never
+    /// re-validated. When it holds there is exactly one candidate document in the system, so stamping by
+    /// the number is correct by construction; when it does not, nothing is stamped.
+    /// </summary>
+    /// <param name = "_number">the number that would be used to match invoice journals</param>
+    /// <returns>true when the number is unique to the current company</returns>
+    private boolean numberResolvesToThisCompanyOnly(str _number)
+    {
+        ClearTaxEInvoiceResponseTable   writebackRow;
+        CustInvoiceJour                 custInvoiceJour;
+        VendInvoiceJour                 vendInvoiceJour;
+        ProjInvoiceJour                 projInvoiceJour;
+        CLREInvoiceAPHeader             apHeader;
+        CLREInvoiceARHeader             arHeader;
+        Set                             companies = new Set(Types::String);
+
+        if (_number == '')
+        {
+            return false;
+        }
+
+        while select crossCompany DataAreaId from writebackRow
+            where writebackRow.InvoiceId == _number
+        {
+            companies.add(writebackRow.DataAreaId);
+        }
+        if (companies.elements() < 2)
+        {
+            while select crossCompany DataAreaId from custInvoiceJour
+                where custInvoiceJour.InvoiceId == _number
+            {
+                companies.add(custInvoiceJour.DataAreaId);
+            }
+        }
+        if (companies.elements() < 2)
+        {
+            while select crossCompany DataAreaId from vendInvoiceJour
+                where vendInvoiceJour.InvoiceId == _number
+            {
+                companies.add(vendInvoiceJour.DataAreaId);
+            }
+        }
+        if (companies.elements() < 2)
+        {
+            while select crossCompany DataAreaId from projInvoiceJour
+                where projInvoiceJour.ProjInvoiceId == _number
+            {
+                companies.add(projInvoiceJour.DataAreaId);
+            }
+        }
+        if (companies.elements() < 2)
+        {
+            while select crossCompany DataAreaId from apHeader
+                where apHeader.DocumentNo == _number
+            {
+                companies.add(apHeader.DataAreaId);
+            }
+        }
+        if (companies.elements() < 2)
+        {
+            while select crossCompany DataAreaId from arHeader
+                where arHeader.DocumentNo == _number
+            {
+                companies.add(arHeader.DataAreaId);
+            }
+        }
+
+        return companies.elements() == 1 && companies.in(curExt());
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getLastWritebackCount</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// How many ClearTaxEInvoiceResponseTable rows the most recent parseWriteBack inserted or enriched.
+    /// A synchronous caller that raised the request for ONE document can refuse to stamp when this is not
+    /// exactly 1, because it then has no way to tell which landed row belongs to its record.
+    /// </summary>
+    /// <returns>number of response rows landed by the last payload</returns>
+    public int getLastWritebackCount()
+    {
+        return lastWritebackCount;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

@@ -1,0 +1,517 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTIntegrationSyncHelper</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// On-demand e-invoice generation from invoice journal forms (the GENERATE_IRN trigger path),
+/// the bridge analog of ELTIntegrationServiceSyncHelper. For every selected journal record it
+/// builds the payload, POSTs it to the sync command endpoint, extracts the returned config with
+/// the existing CELTQueryBuilder / CELTExtractor query framework, POSTs the zip to the sync upload
+/// endpoint, and applies the writeback carried in the upload response.
+/// </summary>
+internal final class CELTIntegrationSyncHelper
+{
+    private CELTLogger logger;
+    private RefRecId   lastWritebackRecId;
+    private DataAreaId lastWritebackCompany;
+    private int        lastWritebackCount;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point (multi-select enabled on the journal forms).
+    /// </summary>
+    /// <param name = "_args">caller args</param>
+    public static void main(Args _args)
+    {
+        CELTIntegrationSyncHelper helper = new CELTIntegrationSyncHelper();
+        MultiSelectionHelper      selection;
+        Common                    common;
+        int                       processed;
+
+        if (!CELTParameters::exist())
+        {
+            error("@CELTLabels:ParametersNotFound");
+            return;
+        }
+
+        if (_args == null || _args.record() == null || !_args.record().isFormDataSource())
+        {
+            error("@CELTLabels:InvalidCaller");
+            return;
+        }
+
+        helper.logger = new CELTLogger();
+
+        selection = MultiSelectionHelper::construct();
+        selection.parmDatasource(FormDataUtil::getFormDataSource(_args.record()));
+
+        common = selection.getFirst();
+        while (common && common.RecId != 0)
+        {
+            if (helper.processJournal(common))
+            {
+                processed++;
+            }
+
+            common = selection.getNext();
+        }
+
+        info(strFmt("@CELTLabels:EInvoiceSyncDone", processed));
+
+        if (_args.caller() && formHasMethod(_args.caller(), identifierStr(research)))
+        {
+            _args.caller().research(true);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getCommandFetcherPayload</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds the GENERATE_IRN payload for the selected journal record. Exact JSON shape:
+    /// { action, commandType, commandParameter: { salesDoc, accountingDoc, fiscalYear, companyCode } }.
+    /// </summary>
+    /// <param name = "_common">selected journal record</param>
+    /// <returns>payload JSON, or empty when the caller table is unsupported</returns>
+    public str getCommandFetcherPayload(Common _common)
+    {
+        CustInvoiceJour     custInvoiceJour;
+        ProjInvoiceJour     projInvoiceJour;
+        VendInvoiceJour     vendInvoiceJour;
+        InventTransferJour  inventTransferJour;
+        str                 salesDoc, accountingDoc, companyCode;
+
+        switch (_common.TableId)
+        {
+            case tableNum(CustInvoiceJour):
+                custInvoiceJour = _common as CustInvoiceJour;
+                salesDoc        = custInvoiceJour.InvoiceId;
+                accountingDoc   = custInvoiceJour.LedgerVoucher;
+                companyCode     = custInvoiceJour.DataAreaId;
+                break;
+
+            case tableNum(ProjInvoiceJour):
+                projInvoiceJour = _common as ProjInvoiceJour;
+                salesDoc        = projInvoiceJour.ProjInvoiceId;
+                accountingDoc   = projInvoiceJour.LedgerVoucher;
+                companyCode     = projInvoiceJour.DataAreaId;
+                break;
+
+            case tableNum(VendInvoiceJour):
+                vendInvoiceJour = _common as VendInvoiceJour;
+                salesDoc        = vendInvoiceJour.InvoiceId;
+                accountingDoc   = vendInvoiceJour.LedgerVoucher;
+                companyCode     = vendInvoiceJour.DataAreaId;
+                break;
+
+            case tableNum(InventTransferJour):
+                inventTransferJour = _common as InventTransferJour;
+                salesDoc           = inventTransferJour.TransferId;
+                accountingDoc      = inventTransferJour.VoucherId;
+                companyCode        = inventTransferJour.DataAreaId;
+                break;
+
+            default:
+                return '';
+        }
+
+        Newtonsoft.Json.Linq.JTokenWriter writer = new Newtonsoft.Json.Linq.JTokenWriter();
+        writer.WriteStartObject();
+        writer.WritePropertyName(CELTConstants::pAction);
+        writer.WriteValue(CELTConstants::GENERATE_IRN);
+        writer.WritePropertyName(CELTConstants::pCommandType);
+        writer.WriteValue(CELTConstants::DATA_EXTRACTION);
+        writer.WritePropertyName(CELTConstants::pCommandParameter);
+        writer.WriteStartObject();
+        writer.WritePropertyName(CELTConstants::pSalesDoc);
+        writer.WriteValue(salesDoc);
+        writer.WritePropertyName(CELTConstants::pAccountingDoc);
+        writer.WriteValue(accountingDoc);
+        writer.WritePropertyName(CELTConstants::pFiscalYear);
+        writer.WriteValue('');
+        writer.WritePropertyName(CELTConstants::pCompanyCode);
+        writer.WriteValue(companyCode);
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+
+        return writer.get_Token().ToString();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processOne</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Runs the full sync pipeline for one payload: fetch command, extract with the query
+    /// framework, upload, apply the writeback carried in the upload response.
+    /// </summary>
+    /// <param name = "_payload">GENERATE_IRN payload JSON</param>
+    /// <param name = "_originTableId">table of the journal that raised the request (e.g. VendInvoiceJour), so the writeback stamps only that journal family; 0 when unknown</param>
+    /// <returns>true when the pipeline completed including writeback</returns>
+    public boolean processOne(str _payload, TableId _originTableId = 0)
+    {
+        CELTParameters      parameter       = CELTParameters::find();
+        CELTCommandFetcher  commandFetcher  = new CELTCommandFetcher(logger);
+        CELTQueryBuilder    builder         = new CELTQueryBuilder(logger);
+        CELTExtractor       extractor       = new CELTExtractor(logger);
+        CELTS3Uploader      uploader        = new CELTS3Uploader(logger);
+        CELTPostingService  postingService  = new CELTPostingService(logger);
+        System.Exception    ex;
+
+        postingService.setOriginTableId(_originTableId);
+
+        try
+        {
+            lastWritebackRecId   = 0;
+            lastWritebackCount   = 0;
+            lastWritebackCompany = '';
+            CELTLogger::commandId('');
+
+            if (!commandFetcher.fetchCommandsSync(_payload))
+            {
+                logger.logErrorMessage(
+                    classStr(CELTIntegrationSyncHelper) + '/' + methodStr(CELTIntegrationSyncHelper, processOne),
+                    'Sync command fetch failed or returned no command.', _payload);
+                return false;
+            }
+
+            CELTLogger::commandId(commandFetcher.getCommandId());
+
+            if (!builder.build(commandFetcher.getConfig()))
+            {
+                return false;
+            }
+
+            if (!extractor.execute(builder))
+            {
+                return false;
+            }
+
+            if (parameter.PresignedURLSync == '')
+            {
+                logger.logErrorMessage(
+                    classStr(CELTIntegrationSyncHelper) + '/' + methodStr(CELTIntegrationSyncHelper, processOne),
+                    'PresignedURLSync is not configured in Clear ELT parameters.');
+                return false;
+            }
+
+            if (!uploader.uploadSync(parameter.PresignedURLSync, extractor.getOutputStream(), commandFetcher.getCommandId()))
+            {
+                return false;
+            }
+
+            // The sync upload responds synchronously with the writeback payload.
+            // It belongs to the company this request was raised from, so land it there when it carries
+            // no companyCode, and remember the exact row it landed so the caller can stamp its record.
+            boolean landed = postingService.parseWriteBack(uploader.getResponseBody(), false, curExt());
+            lastWritebackRecId   = postingService.getLastWritebackRecId();
+            lastWritebackCompany = postingService.getLastWritebackCompany();
+            lastWritebackCount   = postingService.getLastWritebackCount();
+            return landed;
+        }
+        catch (ex)
+        {
+            logger.logErrorMessage(
+                classStr(CELTIntegrationSyncHelper) + '/' + methodStr(CELTIntegrationSyncHelper, processOne),
+                ex.Message, commandFetcher.getCommandId());
+            return false;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setLogger</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Injects the logger when the helper is driven from the batch service rather than the menu item.
+    /// </summary>
+    /// <param name = "_logger">the shared logger</param>
+    public void setLogger(CELTLogger _logger)
+    {
+        logger = _logger;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processJournal</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Generates the e-invoice for one posted journal record and stamps the outcome on THAT EXACT record
+    /// (CELTEInvoiceStatus / CELTDocumentId / CELTUniqueId / CELTErrorMsg), by RecId, from the response row
+    /// this request landed. The request knows which record raised it, so no invoice number is involved on
+    /// this path at all - which is what makes it correct for customer, project and vendor invoices alike,
+    /// including numbers shared with another legal entity or another vendor.
+    /// </summary>
+    /// <param name = "_journal">CustInvoiceJour, ProjInvoiceJour, VendInvoiceJour or InventTransferJour record</param>
+    /// <returns>true when the pipeline completed and the response row for this invoice landed</returns>
+    public boolean processJournal(Common _journal)
+    {
+        CustInvoiceJour custJour;
+        ProjInvoiceJour projJour;
+        VendInvoiceJour vendJour;
+        str             journalNumber;
+        str             payload;
+        boolean         ok;
+
+        switch (_journal.TableId)
+        {
+            case tableNum(CustInvoiceJour):
+                custJour = _journal;
+                journalNumber = custJour.InvoiceId;
+                break;
+
+            case tableNum(ProjInvoiceJour):
+                projJour = _journal;
+                journalNumber = projJour.ProjInvoiceId;
+                break;
+
+            case tableNum(VendInvoiceJour):
+                vendJour = _journal;
+                journalNumber = vendJour.InvoiceId;
+                break;
+        }
+
+        // Every log line written while this document generates carries its invoice number, so the
+        // invoice lists can open the exact log trail for one selected invoice.
+        CELTLogger::documentId(journalNumber);
+
+        try
+        {
+            payload = this.getCommandFetcherPayload(_journal);
+
+            if (payload != '')
+            {
+                ok = this.processOne(payload, _journal.TableId);
+
+                if (_journal.TableId == tableNum(CustInvoiceJour)
+                    || _journal.TableId == tableNum(ProjInvoiceJour)
+                    || _journal.TableId == tableNum(VendInvoiceJour))
+                {
+                    this.stampJournalFromLandedRow(_journal, ok);
+
+                    // The reply only counts as a success for THIS invoice when it actually carried its response
+                    // row; otherwise the run summary would report a generation the invoice has no record of.
+                    ok = ok && lastWritebackRecId != 0;
+                }
+            }
+        }
+        finally
+        {
+            CELTLogger::documentId('');
+        }
+
+        return ok;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>stampJournalFromLandedRow</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Stamps the journal record that raised this request, by RecId, from the ClearTaxEInvoiceResponseTable
+    /// row the request landed (selected cross-company, since the reply may be routed to another legal
+    /// entity). The record is identified by RecId, never by an invoice number - so a number shared with
+    /// another vendor, another customer invoice or another company cannot misdirect the stamp.
+    /// Two guards make the correlation to the landed row verifiable rather than assumed: the payload must
+    /// have landed exactly ONE response row, and when that row names a document it must be this journal's
+    /// own number. Both can only REFUSE a stamp, never choose one, so neither can point at a wrong record.
+    /// A refusal, like a pipeline failure, writes only CELTErrorMsg: the status and identifiers stay
+    /// untouched, so an earlier submission is never flipped and the invoice is retried by the next run.
+    /// The update runs on ITS OWN buffers (custJourUpd / projJourUpd / vendJourUpd): assigning
+    /// _journal to a typed buffer aliases the CALLER's cursor, and re-selecting through that alias
+    /// clears the shared buffer before the range binds - the stamp then targets RecId 0 and the
+    /// caller's while-select loop dies with it. journalRecId is captured up front for the same reason.
+    /// </summary>
+    /// <param name = "_journal">the journal record that raised the request</param>
+    /// <param name = "_landed">whether the pipeline completed without errors on other tables</param>
+    private void stampJournalFromLandedRow(Common _journal, boolean _landed)
+    {
+        ClearTaxEInvoiceResponseTable   writeback;
+        CustInvoiceJour                 custJour;
+        CustInvoiceJour                 custJourUpd;
+        ProjInvoiceJour                 projJour;
+        ProjInvoiceJour                 projJourUpd;
+        VendInvoiceJour                 vendJour;
+        VendInvoiceJour                 vendJourUpd;
+        RecId                           journalRecId  = _journal.RecId;
+        TableId                         journalTableId = _journal.TableId;
+        CELTEInvoiceStatus              newStatus;
+        str                             errorMsg;
+        str                             journalNumber;
+        str                             refusal;
+        boolean                         hasRow;
+        str                             programName = classStr(CELTIntegrationSyncHelper) + '/' + methodStr(CELTIntegrationSyncHelper, stampJournalFromLandedRow);
+
+        if (!journalRecId)
+        {
+            return;
+        }
+
+        switch (journalTableId)
+        {
+            case tableNum(CustInvoiceJour):
+                custJour      = _journal;
+                journalNumber = custJour.InvoiceId;
+                break;
+
+            case tableNum(ProjInvoiceJour):
+                projJour      = _journal;
+                journalNumber = projJour.ProjInvoiceId;
+                break;
+
+            case tableNum(VendInvoiceJour):
+                vendJour      = _journal;
+                journalNumber = vendJour.InvoiceId;
+                break;
+
+            default:
+                return;
+        }
+
+        if (lastWritebackRecId)
+        {
+            select firstonly crossCompany writeback
+                where writeback.RecId == lastWritebackRecId;
+        }
+
+        hasRow = writeback.RecId != 0;
+
+        // Guard 1: one request, one document - more than one landed row means the correlation is unknown.
+        if (hasRow && lastWritebackCount != 1)
+        {
+            refusal = strFmt('the reply landed %1 response rows, so the one belonging to this invoice cannot be told apart', lastWritebackCount);
+            hasRow  = false;
+        }
+
+        // Guard 2: when the landed row names a document, it must be this one. Used only to reject.
+        if (hasRow && writeback.InvoiceId != '' && journalNumber != '' && writeback.InvoiceId != journalNumber)
+        {
+            refusal = strFmt('the landed row is for document %1, not %2', writeback.InvoiceId, journalNumber);
+            hasRow  = false;
+        }
+
+        if (hasRow)
+        {
+            errorMsg  = writeback.ErrorDetails != '' ? writeback.ErrorDetails : writeback.ERROR;
+            newStatus = CELTPostingService::writebackSucceeded(writeback)
+                ? CELTEInvoiceStatus::Submitted : CELTEInvoiceStatus::NotSubmitted;
+        }
+
+        ttsbegin;
+
+        switch (journalTableId)
+        {
+            case tableNum(CustInvoiceJour):
+                select forupdate firstonly custJourUpd where custJourUpd.RecId == journalRecId;
+                if (custJourUpd.RecId)
+                {
+                    if (!hasRow)
+                    {
+                        custJourUpd.CELTErrorMsg = refusal != ''
+                            ? "@CELTLabels:IntegrationStampRefused" : "@CELTLabels:IntegrationPipelineFailed";
+                    }
+                    else
+                    {
+                        if (writeback.DocumentId != '')
+                        {
+                            custJourUpd.CELTDocumentId = writeback.DocumentId;
+                        }
+                        if (writeback.UniqueId != '')
+                        {
+                            custJourUpd.CELTUniqueId = writeback.UniqueId;
+                        }
+                        custJourUpd.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                        custJourUpd.CELTEInvoiceStatus = newStatus;
+                    }
+                    custJourUpd.update();
+                }
+                break;
+
+            case tableNum(ProjInvoiceJour):
+                select forupdate firstonly projJourUpd where projJourUpd.RecId == journalRecId;
+                if (projJourUpd.RecId)
+                {
+                    if (!hasRow)
+                    {
+                        projJourUpd.CELTErrorMsg = refusal != ''
+                            ? "@CELTLabels:IntegrationStampRefused" : "@CELTLabels:IntegrationPipelineFailed";
+                    }
+                    else
+                    {
+                        if (writeback.DocumentId != '')
+                        {
+                            projJourUpd.CELTDocumentId = writeback.DocumentId;
+                        }
+                        if (writeback.UniqueId != '')
+                        {
+                            projJourUpd.CELTUniqueId = writeback.UniqueId;
+                        }
+                        projJourUpd.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                        projJourUpd.CELTEInvoiceStatus = newStatus;
+                    }
+                    projJourUpd.update();
+                }
+                break;
+
+            case tableNum(VendInvoiceJour):
+                select forupdate firstonly vendJourUpd where vendJourUpd.RecId == journalRecId;
+                if (vendJourUpd.RecId)
+                {
+                    if (!hasRow)
+                    {
+                        vendJourUpd.CELTErrorMsg = refusal != ''
+                            ? "@CELTLabels:IntegrationStampRefused" : "@CELTLabels:IntegrationPipelineFailed";
+                    }
+                    else
+                    {
+                        if (writeback.DocumentId != '')
+                        {
+                            vendJourUpd.CELTDocumentId = writeback.DocumentId;
+                        }
+                        if (writeback.UniqueId != '')
+                        {
+                            vendJourUpd.CELTUniqueId = writeback.UniqueId;
+                        }
+                        vendJourUpd.CELTErrorMsg       = subStr(errorMsg, 1, 255);
+                        vendJourUpd.CELTEInvoiceStatus = newStatus;
+                    }
+                    vendJourUpd.update();
+                }
+                break;
+        }
+
+        ttscommit;
+
+        if (!hasRow)
+        {
+            logger.logWarningMessage(programName,
+                refusal != ''
+                    ? strFmt('%1 RecId %2 not stamped: %3.', tableId2Name(journalTableId), journalRecId, refusal)
+                    : strFmt('%1 RecId %2 not stamped: the reply landed no response row.', tableId2Name(journalTableId), journalRecId),
+                journalNumber);
+            return;
+        }
+
+        logger.logInfoMessage(programName,
+            strFmt('%1 RecId %2 stamped %3 from writeback RecId %4%5.',
+                tableId2Name(journalTableId), journalRecId, enum2Str(newStatus), writeback.RecId,
+                ((lastWritebackCompany != '' && lastWritebackCompany != curExt()) ? strFmt(' (landed in company %1)', lastWritebackCompany) : '')
+                + (_landed ? '' : ' - the payload reported errors on other tables')));
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

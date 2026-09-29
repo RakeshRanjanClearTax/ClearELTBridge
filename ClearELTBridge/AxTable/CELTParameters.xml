@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTParameters</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+public class CELTParameters extends common
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>find</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Returns the CURRENT COMPANY's parameters record, creating nothing. The table saves per
+    /// company (entity-specific setup: a UAE entity never sees the France endpoints or token),
+    /// so the plain select is already scoped to curExt().
+    /// </summary>
+    /// <param name = "_forUpdate">select for update when true</param>
+    /// <returns>the CELTParameters record</returns>
+    public static CELTParameters find(boolean _forUpdate = false)
+    {
+        CELTParameters parameter;
+
+        if (_forUpdate)
+        {
+            parameter.selectForUpdate(_forUpdate);
+        }
+
+        // Deterministic: prefer the seeded record (Primary = 1), then lowest RecId - an unordered
+        // firstonly can pick a different row than the parameters form displays when duplicates exist.
+        select firstonly parameter
+            order by Primary desc, RecId asc;
+        return parameter;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>exist</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Indicates whether a parameters record has been configured.
+    /// </summary>
+    /// <returns>true when a row exists</returns>
+    public static boolean exist()
+    {
+        return (select firstonly RecId from CELTParameters).RecId != 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getAuthToken</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Returns the authentication token maintained in Clear ELT parameters.
+    /// </summary>
+    /// <returns>token string</returns>
+    public static str getAuthToken()
+    {
+        return CELTParameters::find().AuthToken;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+	<Label>@CELTLabels:CELTParameters</Label>
+	<CacheLookup>EntireTable</CacheLookup>
+	<PrimaryIndex>PrimaryIdx</PrimaryIndex>
+	<SaveDataPerCompany>Yes</SaveDataPerCompany>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TableGroup>Parameter</TableGroup>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>Identity</Name>
+			<Label>@CELTLabels:Identity</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>Environment</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>ErpInstanceID</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>WorkspaceID</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>Endpoints</Name>
+			<Label>@CELTLabels:Endpoints</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>BaseURL</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>GetPresignedURL</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TriggerIngestionURL</DataField>
+				</AxTableFieldGroupField>
+</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>EInvoiceAPIDetails</Name>
+			<Label>@CELTLabels:EInvoiceAPIDetails</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>GetCommandURLSync</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PresignedURLSync</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>GetStatusURL</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>AckURL</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>AuthToken</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>DocumentPrintURL</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>LifecycleActions</Name>
+			<Label>@CELTLabels:LifecycleActions</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>LifecycleActionURL</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>LifecycleCountryCode</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>LifecycleSIREN</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>LifecycleSIRET</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>EReportingEnabled</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>Maintenance</Name>
+			<Label>@CELTLabels:PeriodicTasks</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>RetentionDays</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldInt">
+			<Name>Primary</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<Label>@CELTLabels:Primary</Label>
+			<Visible>No</Visible>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>Environment</Name>
+			<Label>@CELTLabels:Environment</Label>
+			<EnumType>CELTEnvironment</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BaseURL</Name>
+			<Label>@CELTLabels:BaseUrl</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AccessTokenURL</Name>
+			<Label>@CELTLabels:AccessTokenURL</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PingURL</Name>
+			<Label>@CELTLabels:PingURL</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>GetCommandsURL</Name>
+			<Label>@CELTLabels:GetCommandURL</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>GetPresignedURL</Name>
+			<Label>@CELTLabels:GetPreSignedURL</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TriggerIngestionURL</Name>
+			<Label>@CELTLabels:TriggerIngestionURL</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TelemetryURL</Name>
+			<Label>@CELTLabels:TelemetryURL</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ErpInstanceID</Name>
+			<Label>@CELTLabels:ErpInstanceID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>WorkspaceID</Name>
+			<Label>@CELTLabels:WorkspaceID</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldInt">
+			<Name>RetentionDays</Name>
+			<Label>@CELTLabels:RetentionDays</Label>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>GetCommandURLSync</Name>
+			<Label>@CELTLabels:GetCommandURLSync</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PresignedURLSync</Name>
+			<Label>@CELTLabels:PresignedURLSync</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>GetStatusURL</Name>
+			<Label>@CELTLabels:GetStatusURL</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AckURL</Name>
+			<Label>@CELTLabels:AckURL</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>AuthToken</Name>
+			<Label>@CELTLabels:AuthToken</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>LifecycleActionURL</Name>
+			<Label>@CELTLabels:LifecycleActionURL</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>LifecycleCountryCode</Name>
+			<Label>@CELTLabels:LifecycleCountryCode</Label>
+			<StringSize>10</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>LifecycleSIREN</Name>
+			<Label>@CELTLabels:LifecycleSIREN</Label>
+			<StringSize>20</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>LifecycleSIRET</Name>
+			<Label>@CELTLabels:LifecycleSIRET</Label>
+			<StringSize>20</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>LifecycleActionsEnabled</Name>
+			<Label>@CELTLabels:LifecycleActionsEnabled</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>PaymentReportingEnabled</Name>
+			<Label>@CELTLabels:PaymentReportingEnabled</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>EReportingEnabled</Name>
+			<Label>@CELTLabels:EReportingEnabled</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DocumentPrintURL</Name>
+			<Label>@CELTLabels:DocumentPrintURL</Label>
+			<StringSize>200</StringSize>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>PrimaryIdx</Name>
+			<AlternateKey>Yes</AlternateKey>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>Primary</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations />
+	<StateMachines />
+</AxTable>

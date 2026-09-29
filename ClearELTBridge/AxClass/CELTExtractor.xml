@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTExtractor</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Runs the query produced by <c>CELTQueryBuilder</c> and streams the result rows to JSON, zipped
+/// into a single <c>data.zip</c> entry named after the primary table. Field values are serialised
+/// with the same rules as the original ELTQueryExecutor so downstream Clear ingestion is unchanged:
+/// numbers raw, enums as their name, datetime as "yyyy-MM-dd HH:mm:ss", date as "yyyy-MM-dd". An empty
+/// date is written as "" (date2Str of dateNull), never as null: the Clear query config types every
+/// date column as VARCHAR and the France mapping treats "" as blank, while an all-null column is
+/// inferred as BIGINT by the loader and then fails to cast.
+/// </summary>
+internal class CELTExtractor
+{
+    private CELTLogger              logger;
+    private System.IO.MemoryStream  outputStream;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new(CELTLogger _logger = new CELTLogger())
+    {
+        logger = _logger;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>execute</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Executes the query and builds the zipped output stream.
+    /// </summary>
+    /// <param name = "_builder">a builder whose query has been built</param>
+    /// <returns>true on success</returns>
+    public boolean execute(CELTQueryBuilder _builder)
+    {
+        System.Exception ex;
+
+        try
+        {
+            new InteropPermission(InteropKind::ClrInterop).assert();
+
+            outputStream = new System.IO.MemoryStream();
+
+            using (System.IO.Compression.ZipArchive zipArchive =
+                new System.IO.Compression.ZipArchive(outputStream, System.IO.Compression.ZipArchiveMode::Create, true))
+            {
+                int planCount = _builder.getQueryCount();
+                int p;
+                for (p = 0; p < planCount; p++)
+                {
+                    this.writePlan(zipArchive, _builder.getQuery(p), _builder.getOutputName(p), _builder.getFieldMap(p), _builder.getCompany(p));
+                }
+            }
+
+            outputStream.Position = 0;
+
+            logger.logInfoMessage(
+                classStr(CELTExtractor) + '/' + methodStr(CELTExtractor, execute),
+                strFmt('Extraction produced %1 file(s), %2 bytes.', _builder.getQueryCount(), outputStream.Length));
+
+            return true;
+        }
+        catch (ex)
+        {
+            logger.logErrorMessage(
+                classStr(CELTExtractor) + '/' + methodStr(CELTExtractor, execute),
+                ex.Message);
+            return false;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>writePlan</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Runs one plan's query and writes its rows as a single JSON array into a zip entry.
+    /// </summary>
+    private void writePlan(
+        System.IO.Compression.ZipArchive   _zipArchive,
+        Query                              _query,
+        str                                _outputName,
+        Map                                _fieldsByTable,
+        str                                _company)
+    {
+        if (_query == null)
+        {
+            return;
+        }
+
+        System.IO.Compression.ZipArchiveEntry fileEntry = _zipArchive.CreateEntry(_outputName + CELTConstants::jsonext);
+
+        using (System.IO.Stream entryStream = fileEntry.Open())
+        {
+            using (System.IO.TextWriter tWriter = new System.IO.StreamWriter(entryStream))
+            {
+                using (Newtonsoft.Json.JsonTextWriter jWriter = new Newtonsoft.Json.JsonTextWriter(tWriter))
+                {
+                    jWriter.WriteStartArray();
+                    int rows = this.runPlan(jWriter, _query, _fieldsByTable, _company);
+                    jWriter.WriteEndArray();
+                    jWriter.Flush();
+
+                    logger.logInfoMessage(
+                        classStr(CELTExtractor) + '/' + methodStr(CELTExtractor, writePlan),
+                        strFmt('%1 (%2): %3 row(s).', _outputName, _company == '' ? 'current company' : _company, rows));
+                }
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>runPlan</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Runs the query (inside changecompany when a company is set) and writes each row to the array.
+    /// Company scoping uses changecompany rather than a cross-company query, because cross-company
+    /// queries forbid data-source-level filtering and value expressions.
+    /// </summary>
+    private int runPlan(Newtonsoft.Json.JsonTextWriter _jWriter, Query _query, Map _fieldsByTable, str _company)
+    {
+        QueryRun queryRun;
+        int      rows = 0;
+
+        if (_company != '')
+        {
+            changecompany (_company)
+            {
+                queryRun = new QueryRun(_query);
+                while (queryRun.next())
+                {
+                    _jWriter.WriteStartObject();
+                    this.writeRow(_jWriter, _query, queryRun, _fieldsByTable);
+                    _jWriter.WriteEndObject();
+                    rows++;
+                }
+            }
+        }
+        else
+        {
+            queryRun = new QueryRun(_query);
+            while (queryRun.next())
+            {
+                _jWriter.WriteStartObject();
+                this.writeRow(_jWriter, _query, queryRun, _fieldsByTable);
+                _jWriter.WriteEndObject();
+                rows++;
+            }
+        }
+
+        return rows;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>writeRow</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Emits fields of the emit-datasources of the current row, flattened into one object.
+    /// A datasource present in the map with an empty list is join-only and is skipped (its buffer,
+    /// e.g. an exists-join, is never touched). A datasource absent from the map emits all fields.
+    /// </summary>
+    private void writeRow(Newtonsoft.Json.JsonTextWriter _jWriter, Query _query, QueryRun _queryRun, Map _fieldsByTable)
+    {
+        int i;
+        for (i = 1; i <= _query.dataSourceCount(); i++)
+        {
+            QueryBuildDataSource qbds    = _query.dataSourceNo(i);
+            TableId              tableId = qbds.table();
+            str                  dsName  = qbds.name();
+
+            // Keyed by datasource name and read through getNo(i): on a self-join both datasources
+            // share a table id, so get(tableId) returned the same buffer (and fields) twice.
+            if (_fieldsByTable.exists(dsName))
+            {
+                List fields = _fieldsByTable.lookup(dsName);
+                if (fields.elements() == 0)
+                {
+                    continue;   // join-only datasource, nothing to emit
+                }
+                this.writeFields(_jWriter, _queryRun.getNo(i), tableId, fields);
+            }
+            else
+            {
+                // No recorded field list -> emit all fields.
+                this.writeFields(_jWriter, _queryRun.getNo(i), tableId, new List(Types::String));
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>writeFields</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Writes the configured fields (or all persistent fields when none configured).
+    /// </summary>
+    private void writeFields(Newtonsoft.Json.JsonTextWriter _jWriter, Common _common, TableId _tableId, List _fieldNames)
+    {
+        if (_fieldNames.elements() > 0)
+        {
+            ListEnumerator le = _fieldNames.getEnumerator();
+            while (le.moveNext())
+            {
+                this.writeField(_jWriter, _common, _tableId, le.current());
+            }
+        }
+        else
+        {
+            DictTable dictTable = new DictTable(_tableId);
+            int f;
+            int cnt = dictTable.fieldCnt();
+            for (f = 1; f <= cnt; f++)
+            {
+                FieldId fieldId = dictTable.fieldCnt2Id(f);
+                if (fieldId > 0)
+                {
+                    this.writeField(_jWriter, _common, _tableId, fieldId2Name(_tableId, fieldId));
+                }
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>writeField</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Writes a single property using the type-specific formatting rules.
+    /// </summary>
+    private void writeField(Newtonsoft.Json.JsonTextWriter _jWriter, Common _common, TableId _tableId, str _name)
+    {
+        FieldId fieldId = fieldName2Id(_tableId, _name);
+        if (fieldId == 0)
+        {
+            return;
+        }
+
+        DictField   dictField = new DictField(_tableId, fieldId);
+        Types       fieldType = dictField.baseType();
+        anytype     value     = _common.getFieldValue(_name);
+        utcDateTime dtValue;
+        str         strValue;
+
+        _jWriter.WritePropertyName(_name);
+
+        switch (fieldType)
+        {
+            case Types::Real, Types::Integer, Types::Int64:
+                _jWriter.WriteValue(value);
+                break;
+
+            case Types::Enum:
+                _jWriter.WriteValue(enum2Str(value));
+                break;
+
+            case Types::UtcDateTime:
+                dtValue = value;
+                _jWriter.WriteValue(strReplace(DateTimeUtil::toStr(dtValue), 'T', ' '));
+                break;
+
+            case Types::Date:
+                // dateNull() serializes as "" - see the class header for why this is not null.
+                _jWriter.WriteValue(date2Str(
+                    value,
+                    321,
+                    DateDay::Digits2, DateSeparator::Hyphen,
+                    DateMonth::Digits2, DateSeparator::Hyphen,
+                    DateYear::Digits4));
+                break;
+
+            default:
+                strValue = value;
+                _jWriter.WriteValue(strValue);
+                break;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getOutputStream</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The zipped <c>data.zip</c> stream, rewound and ready to upload.
+    /// </summary>
+    /// <returns>zip stream</returns>
+    public System.IO.Stream getOutputStream()
+    {
+        return outputStream;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

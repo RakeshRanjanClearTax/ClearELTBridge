@@ -1,0 +1,1057 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTSalesInvoices</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTSalesInvoices extends FormRun
+{
+    // Per-row cache for the newest writeback of the row being rendered: the 16 status columns
+    // are display methods that all read the same row, so the first one pays the select and the
+    // rest reuse it. Keyed on the journal RecId (InvoiceId can repeat across blank rows).
+    ClearTaxEInvoiceResponseTable wbCache;
+    RecId                         wbCacheJourRecId;
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// All posted sales invoices, newest first, with the Clear e-invoice status columns.
+    /// </summary>
+    public void init()
+    {
+        super();
+
+        CustInvoiceJour_ds.query().dataSourceTable(tableNum(CustInvoiceJour)).addSortField(fieldNum(CustInvoiceJour, InvoiceDate), SortOrder::Descending);
+        // Ties on the date need a defined order too: without a second key, same-date invoices
+        // come back in whatever order SQL picks, so the grid appeared to shuffle after every
+        // re-read (e.g. when Generate e-invoice refreshes the grid).
+        CustInvoiceJour_ds.query().dataSourceTable(tableNum(CustInvoiceJour)).addSortField(fieldNum(CustInvoiceJour, InvoiceId), SortOrder::Descending);
+
+        this.applyCountryVisibility();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applyCountryVisibility</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Checkbox-driven visibility (Company capabilities setup) plus the country layout: France
+    /// keeps its PPF lifecycle dashboard columns; every other seller country shows the PINT
+    /// dashboard columns from the UAE ERP dashboard spec (icon, company, voucher, dates, fiscal
+    /// year, customer name and VAT, self-billing, document id, errors, statuses).
+    /// </summary>
+    private void applyCountryVisibility()
+    {
+        boolean lifecycleOn   = CELTLifecycleActionService::isLifecycleActionsVisible();
+        boolean selfBillingOn = CELTLifecycleActionService::isSelfBillingVisible();
+        boolean franceView    = strUpr(new CELTLifecycleActionService().sellerCountryIsoCode()) == CELTConstants::DefaultLifecycleCountry;
+
+        element.design().controlName(formControlStr(CELTSalesInvoices, BtnGenerateEInvoice)).visible(selfBillingOn);
+        element.design().controlName(formControlStr(CELTSalesInvoices, BtnLifecycleMenu)).visible(lifecycleOn && franceView);
+        element.design().controlName(formControlStr(CELTSalesInvoices, BtnPaymentHistory)).visible(lifecycleOn && franceView);
+        element.design().controlName(formControlStr(CELTSalesInvoices, Grid_PaymentHistory)).visible(lifecycleOn && franceView);
+        element.design().controlName(formControlStr(CELTSalesInvoices, BtnActionLog)).visible(lifecycleOn && franceView);
+
+        // PINT dashboard columns (every non-France seller country).
+        // Icon column hidden everywhere for now (user request) - flip false back to !franceView to re-enable.
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_Icon), false);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_Company), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_AccountingDocNo), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PostingDate), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_DocumentDate), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_FiscalYear), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_VATNum), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_SelfBilling), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_GovRepStatus), !franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_GovRepReasonMsg), !franceView);
+
+        // France-only columns.
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_InvoiceDate), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_DueDate), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_InvoiceAccount), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_SalesId), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_InvoiceAmount), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_CurrencyCode), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_EInvoiceStatus), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_ActionTaken), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_DocumentStatusReasonCode), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFSubmissionStatus), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFSubmissionReasonCode), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFSubmissionReasonMsg), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFLcSubmittedStatus), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFLcSubmittedReasonCode), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFLcSubmittedReasonMsg), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFLcPmtCollectedStatus), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFLcPmtCollectedReasonCode), franceView);
+        this.toggle(formControlStr(CELTSalesInvoices, Grid_PPFLcPmtCollectedReasonMsg), franceView);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>toggle</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Shows or hides one design control by name.
+    /// </summary>
+    private void toggle(str _controlName, boolean _visible)
+    {
+        element.design().controlName(_controlName).visible(_visible);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>iconStateOf</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Traffic-light state for a row, per the UAE dashboard spec: Red when an error is present
+    /// or any status reads FAILED / REJECTED; Yellow while still in flight (OPEN / PENDING /
+    /// PROCESSING / NOT_SUBMITTED - including no writeback yet); Green for the rest.
+    /// </summary>
+    /// <param name = "_jour">the journal row being rendered</param>
+    /// <returns>the icon column text; the row cell color follows it in displayOption</returns>
+    public str iconStateOf(CustInvoiceJour _jour)
+    {
+        ClearTaxEInvoiceResponseTable wb = this.findWriteback(_jour);
+        str statuses = strUpr(wb.Success + '|' + wb.STATUS + '|' + wb.PAExchangeStatus + '|' + wb.PPFSubmissionStatus);
+        str errorMsg = wb.ErrorDetails != '' ? wb.ErrorDetails : wb.ERROR;
+
+        if (wb.RecId == 0)
+        {
+            // Nothing sent to Clear yet counts as not submitted.
+            return "@CELTLabels:IconYellow";
+        }
+
+        if (errorMsg != ''
+            || strScan(statuses, 'FAIL', 1, strLen(statuses)) > 0
+            || strScan(statuses, 'REJECT', 1, strLen(statuses)) > 0
+            || strScan(statuses, 'FALSE', 1, strLen(statuses)) > 0)
+        {
+            return "@CELTLabels:IconRed";
+        }
+
+        if (strScan(statuses, 'OPEN', 1, strLen(statuses)) > 0
+            || strScan(statuses, 'PENDING', 1, strLen(statuses)) > 0
+            || strScan(statuses, 'PROCESSING', 1, strLen(statuses)) > 0
+            || strScan(statuses, 'NOT_SUBMITTED', 1, strLen(statuses)) > 0)
+        {
+            return "@CELTLabels:IconYellow";
+        }
+
+        return "@CELTLabels:IconGreen";
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>findWriteback</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The newest Clear writeback row for the invoice, cached per journal row so the grid's
+    /// status columns cost one select per rendered row instead of one per column.
+    /// </summary>
+    /// <param name = "_jour">the journal row being rendered</param>
+    /// <returns>newest writeback row; an empty buffer when none has landed</returns>
+    public ClearTaxEInvoiceResponseTable findWriteback(CustInvoiceJour _jour)
+    {
+        if (wbCacheJourRecId != _jour.RecId)
+        {
+            wbCache.clear();
+
+            if (_jour.InvoiceId != '')
+            {
+                // Match current rows (InvoiceId) and legacy-shaped rows (invoice number in
+                // DocumentId), like the response log's filter. Newest by creation time - RecId
+                // order is not chronological across AOS sessions (per-AOS id blocks).
+                select firstonly wbCache
+                    order by CreatedDateTime desc, RecId desc
+                    where wbCache.InvoiceId == _jour.InvoiceId
+                       || wbCache.DocumentId == _jour.InvoiceId;
+            }
+
+            wbCacheJourRecId = _jour.RecId;
+        }
+
+        return wbCache;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>invalidateWritebackCache</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Forgets the cached writeback row so the next render re-reads it from the table.
+    /// </summary>
+    public void invalidateWritebackCache()
+    {
+        wbCacheJourRecId = 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>research</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Re-reads the grid after an action - the sync helper refreshes its caller through this
+    /// method. The writeback cache must be dropped first, or the re-render of the current row
+    /// would show the pre-action values.
+    /// </summary>
+    /// <param name = "_retainPosition">keep the cursor on the current row</param>
+    public void research(boolean _retainPosition = true)
+    {
+        this.invalidateWritebackCache();
+        CustInvoiceJour_ds.research(_retainPosition);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="">
+			<DataSource>
+				<Name>CustInvoiceJour</Name>
+				<Methods>
+					<Method>
+						<Name>executeQuery</Name>
+						<Source><![CDATA[
+        public void executeQuery()
+        {
+            element.invalidateWritebackCache();
+            super();
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>research</Name>
+						<Source><![CDATA[
+        public void research(boolean _retainPosition = false)
+        {
+            element.invalidateWritebackCache();
+            super(_retainPosition);
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentId</Name>
+						<Source><![CDATA[
+        /// <summary>Clear document id - from the newest writeback, else the journal's stamped id.</summary>
+        display str documentId(CustInvoiceJour _jour)
+        {
+            // Clear assigns a document id even to a failed submission, and the dashboard shows it
+            // whenever one exists (UAE ERP dashboard spec) - the outcome lives in the error and
+            // status columns, not in this identifier.
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_jour);
+            return wb.DocumentId != '' ? wb.DocumentId : _jour.CELTDocumentId;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>errorDetails</Name>
+						<Source><![CDATA[
+        display str errorDetails(CustInvoiceJour _jour)
+        {
+            // France writes the message into ErrorDetails; Clear's MEA (UAE) backend into ERROR.
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_jour);
+            return wb.ErrorDetails != '' ? wb.ErrorDetails : wb.ERROR;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>displayOption</Name>
+						<Source><![CDATA[
+        /// <summary>
+        /// Colors the icon cell red / yellow / green to match the icon state (UAE dashboard spec).
+        /// </summary>
+        public void displayOption(Common _record, FormRowDisplayOption _options)
+        {
+            CustInvoiceJour jour  = _record as CustInvoiceJour;
+            str             state = element.iconStateOf(jour);
+
+            // Excel-style pastel fills; the default text stays readable on all three.
+            if (state == "@CELTLabels:IconRed")
+            {
+                _options.backColor(WinAPI::RGB2int(255, 199, 206));
+            }
+            else if (state == "@CELTLabels:IconYellow")
+            {
+                _options.backColor(WinAPI::RGB2int(255, 235, 156));
+            }
+            else
+            {
+                _options.backColor(WinAPI::RGB2int(198, 239, 206));
+            }
+
+            _options.affectedElementsByControl(element.design().controlName(formControlStr(CELTSalesInvoices, Grid_Icon)).id());
+            super(_record, _options);
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>iconState</Name>
+						<Source><![CDATA[
+        display str iconState(CustInvoiceJour _jour)
+        {
+            // The cell shows only its color fill (set in displayOption); the state text stays internal.
+            return '';
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>companyId</Name>
+						<Source><![CDATA[
+        display str companyId(CustInvoiceJour _jour)
+        {
+            return _jour.DataAreaId;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>fiscalYear</Name>
+						<Source><![CDATA[
+        display str fiscalYear(CustInvoiceJour _jour)
+        {
+            // The writeback carries the fiscal year when the backend sets one; otherwise the
+            // invoice date's calendar year stands in.
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_jour);
+            return wb.FiscalYear != '' ? wb.FiscalYear : int2Str(year(_jour.InvoiceDate));
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>selfBilling</Name>
+						<Source><![CDATA[
+        display str selfBilling(CustInvoiceJour _jour)
+        {
+            // A sales invoice is self-billed only when the buyer issued it: the writeback then
+            // carries a SELF token, or the UNTDID 1001 self-billed codes (389 invoice, 261
+            // credit note) in its type fields.
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_jour);
+            str flowText = strUpr(wb.EInvoiceType + '|' + wb.Flow + '|' + wb.InvoiceType);
+
+            boolean selfBilled = strScan(flowText, 'SELF', 1, strLen(flowText)) > 0
+                || wb.InvoiceType == '389' || wb.InvoiceType == '261'
+                || wb.DOC_TYPE    == 389   || wb.DOC_TYPE    == 261;
+
+            return selfBilled ? enum2Str(NoYes::Yes) : enum2Str(NoYes::No);
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>warningDetails</Name>
+						<Source><![CDATA[
+        display str warningDetails(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).WarningDetails;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>actionTaken</Name>
+						<Source><![CDATA[
+        /// <summary>The last lifecycle action sent for the document (blank when none yet).</summary>
+        display str actionTaken(CustInvoiceJour _jour)
+        {
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_jour);
+            return wb.LastAction == CELTLifecycleAction::None ? '' : enum2Str(wb.LastAction);
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatus</Name>
+						<Source><![CDATA[
+        display str documentStatus(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PAExchangeStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatusReasonCode</Name>
+						<Source><![CDATA[
+        display str documentStatusReasonCode(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PAExchangeReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatusReasonMsg</Name>
+						<Source><![CDATA[
+        display str documentStatusReasonMsg(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PAExchangeReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfSubmissionStatus</Name>
+						<Source><![CDATA[
+        display str ppfSubmissionStatus(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFSubmissionStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfSubmissionReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfSubmissionReasonCode(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFSubmissionReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfSubmissionReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfSubmissionReasonMsg(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFSubmissionReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcSubmittedStatus</Name>
+						<Source><![CDATA[
+        display str ppfLcSubmittedStatus(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFLCSubmittedStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcSubmittedReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfLcSubmittedReasonCode(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFLCSubmittedReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcSubmittedReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfLcSubmittedReasonMsg(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFLCSubmittedReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcPmtCollectedStatus</Name>
+						<Source><![CDATA[
+        display str ppfLcPmtCollectedStatus(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFLCPmtCollectedStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcPmtCollectedReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfLcPmtCollectedReasonCode(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFLCPmtCollectedReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcPmtCollectedReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfLcPmtCollectedReasonMsg(CustInvoiceJour _jour)
+        {
+            return element.findWriteback(_jour).PPFLCPmtCollectedReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+				<Fields />
+			</DataSource>
+		</DataSources>
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CustInvoiceJour</Name>
+			<Table>CustInvoiceJour</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:AllSalesInvoices</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormActionPaneControl">
+				<Name>ActionPane</Name>
+				<Type>ActionPane</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormActionPaneTabControl">
+						<Name>EInvoiceTab</Name>
+						<Type>ActionPaneTab</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormButtonGroupControl">
+								<Name>EInvoiceGroup</Name>
+								<Type>ButtonGroup</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnGenerateEInvoice</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>CustInvoiceJour</DataSource>
+										<ImageLocation>Symbol</ImageLocation>
+										<MenuItemName>CELTIntegrationSync</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+										<NormalImage>Upload</NormalImage>
+										<Text>@CELTLabels:ExtractAndUpload</Text>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnResponseLog</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>CustInvoiceJour</DataSource>
+										<ImageLocation>Symbol</ImageLocation>
+										<MenuItemName>CELTEInvoiceResponseLog</MenuItemName>
+										<NormalImage>History</NormalImage>
+										<Text>@CELTLabels:EInvoiceResponseLog</Text>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnApiLog</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>CustInvoiceJour</DataSource>
+										<ImageLocation>Symbol</ImageLocation>
+										<MenuItemName>CELTLog</MenuItemName>
+										<MenuItemType>Display</MenuItemType>
+										<NormalImage>Search</NormalImage>
+										<Text>@CELTLabels:ApiRequestLog</Text>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnGetDocumentPdf</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>CustInvoiceJour</DataSource>
+										<ImageLocation>Symbol</ImageLocation>
+										<MenuItemName>CELTGetDocumentPdf</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+									<NormalImage>Download</NormalImage>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuButtonControl">
+										<Name>BtnLifecycleMenu</Name>
+										<Type>MenuButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<Controls>
+											<AxFormControl xmlns=""
+												i:type="AxFormMenuFunctionButtonControl">
+												<Name>BtnLcComplete</Name>
+												<Type>MenuFunctionButton</Type>
+												<FormControlExtension
+													i:nil="true" />
+												<DataSource>CustInvoiceJour</DataSource>
+												<MenuItemName>CELTLcComplete</MenuItemName>
+												<MenuItemType>Action</MenuItemType>
+											</AxFormControl>
+											<AxFormControl xmlns=""
+												i:type="AxFormMenuFunctionButtonControl">
+												<Name>BtnLcConfirmPayment</Name>
+												<Type>MenuFunctionButton</Type>
+												<FormControlExtension
+													i:nil="true" />
+												<DataSource>CustInvoiceJour</DataSource>
+												<MenuItemName>CELTLcConfirmPayment</MenuItemName>
+												<MenuItemType>Action</MenuItemType>
+											</AxFormControl>
+										</Controls>
+										<Text>@CELTLabels:LifecycleActions</Text>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnPaymentHistory</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>CustInvoiceJour</DataSource>
+										<MenuItemName>CELTPaymentHistory</MenuItemName>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnActionLog</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>CustInvoiceJour</DataSource>
+										<MenuItemName>CELTLifecycleActionLog</MenuItemName>
+									</AxFormControl>
+								</Controls>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:EInvoice</Caption>
+					</AxFormControl>
+				</Controls>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>FilterGroup</Name>
+				<Pattern>CustomAndQuickFilters</Pattern>
+				<PatternVersion>1.1</PatternVersion>
+				<Type>Group</Type>
+				<WidthMode>SizeToAvailable</WidthMode>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl>
+						<Name>Quickfilter</Name>
+						<FormControlExtension>
+							<Name>QuickFilterControl</Name>
+							<ExtensionComponents />
+							<ExtensionProperties>
+								<AxFormControlExtensionProperty>
+									<Name>targetControlName</Name>
+									<Type>String</Type>
+									<Value>Grid</Value>
+								</AxFormControlExtensionProperty>
+								<AxFormControlExtensionProperty>
+									<Name>defaultColumnName</Name>
+									<Type>String</Type>
+									<Value>Grid_InvoiceId</Value>
+								</AxFormControlExtensionProperty>
+								<AxFormControlExtensionProperty>
+									<Name>placeholderText</Name>
+									<Type>String</Type>
+								</AxFormControlExtensionProperty>
+							</ExtensionProperties>
+						</FormControlExtension>
+					</AxFormControl>
+				</Controls>
+				<ArrangeMethod>HorizontalLeft</ArrangeMethod>
+				<FrameType>None</FrameType>
+				<Style>CustomFilter</Style>
+				<ViewEditMode>Edit</ViewEditMode>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Icon</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>iconState</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:StatusIcon</Label>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Company</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>companyId</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:CompanyColumn</Label>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_AccountingDocNo</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>LedgerVoucher</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:AccountingDocNumber</Label>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_PostingDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceDate</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PostingDate</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoiceId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceId</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_DocumentDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DocumentDate</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_FiscalYear</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>fiscalYear</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:FiscalYear</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_InvoiceDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceDate</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_DueDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DueDate</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoiceAccount</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceAccount</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoicingName</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoicingName</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_VATNum</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>VATNum</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:CustomerVAT</Label>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_SelfBilling</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>selfBilling</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:SelfBilling</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_SalesId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>SalesId</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_InvoiceAmount</Name>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceAmount</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_CurrencyCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CurrencyCode</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Grid_EInvoiceStatus</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CELTEInvoiceStatus</DataField>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Items />
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentId</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentId</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ErrorDetails</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>errorDetails</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:ErrorDetails</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Warnings</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>warningDetails</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:Warnings</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ActionTaken</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>actionTaken</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:ActionTaken</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormMenuFunctionButtonControl">
+						<Name>Grid_PaymentHistory</Name>
+						<Type>MenuFunctionButton</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataSource>CustInvoiceJour</DataSource>
+						<MenuItemName>CELTPaymentHistory</MenuItemName>
+						<Text>@CELTLabels:ViewLink</Text>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatus</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatusReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatusReasonCode</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentStatusReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatusReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatusReasonMsg</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentStatusReasonMsg</Label>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_GovRepStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionStatus</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:GovReportingStatus</Label>
+					</AxFormControl>
+										<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_GovRepReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionReasonMsg</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:GovReportingReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFSubmissionStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionStatus</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFSubmissionStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFSubmissionReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionReasonCode</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFSubmissionReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFSubmissionReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionReasonMsg</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFSubmissionReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcSubmittedStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcSubmittedStatus</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcSubmittedStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcSubmittedReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcSubmittedReasonCode</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcSubmittedReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcSubmittedReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcSubmittedReasonMsg</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcSubmittedReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcPmtCollectedStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcPmtCollectedStatus</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcPmtCollectedStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcPmtCollectedReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcPmtCollectedReasonCode</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcPmtCollectedReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcPmtCollectedReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcPmtCollectedReasonMsg</DataMethod>
+						<DataSource>CustInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcPmtCollectedReasonMsg</Label>
+					</AxFormControl>
+				</Controls>
+				<DataSource>CustInvoiceJour</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

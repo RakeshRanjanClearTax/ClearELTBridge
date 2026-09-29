@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxFormExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>EcoResProductDetailsExtended.ClearELTBridge</Name>
+	<ControlModifications />
+	<Controls>
+		<AxFormExtensionControl xmlns="">
+			<Name>CELTEInvoiceTabExt</Name>
+			<FormControl xmlns=""
+				i:type="AxFormTabPageControl">
+				<Name>CELT_EInvoiceTab</Name>
+				<Pattern>FieldsFieldGroups</Pattern>
+				<PatternVersion>1.1</PatternVersion>
+				<Type>TabPage</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormGroupControl">
+						<Name>CELT_EInvoiceGroup</Name>
+						<Type>Group</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormStringControl">
+								<Name>CELT_AEServiceAccountingCode</Name>
+								<Type>String</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAEServiceAccountingCode</DataField>
+								<DataSource>InventTable</DataSource>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormComboBoxControl">
+								<Name>CELT_AERcmType</Name>
+								<Type>ComboBox</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAERcmType</DataField>
+								<DataSource>InventTable</DataSource>
+								<Items />
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormComboBoxControl">
+								<Name>CELT_AEItemType</Name>
+								<Type>ComboBox</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>CELTAEItemType</DataField>
+								<DataSource>InventTable</DataSource>
+								<Items />
+							</AxFormControl>
+						</Controls>
+						<DataSource>InventTable</DataSource>
+					</AxFormControl>
+				</Controls>
+				<ColumnsMode>Fill</ColumnsMode>
+				<Caption>@CELTLabels:EInvoice</Caption>
+			</FormControl>
+			<Parent>TabHeader</Parent>
+		</AxFormExtensionControl>
+	</Controls>
+	<DataSources />
+</AxFormExtension>

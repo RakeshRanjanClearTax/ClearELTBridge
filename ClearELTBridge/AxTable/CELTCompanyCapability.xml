@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCompanyCapability</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Per-company capability checkboxes (the BC "Company Code Mappings" idea): Lifecycle actions
+/// shows/hides the lifecycle buttons, Self-billing shows/hides the e-invoice generation buttons.
+/// Global (not per-company saved) so an admin maintains every company in one grid; a company
+/// without a row - or with a box unchecked - has that capability hidden. The country and
+/// capability gates in the services stay as the hard stop behind the buttons.
+/// </summary>
+public class CELTCompanyCapability extends common
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>find</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The capability row of a company.
+    /// </summary>
+    /// <param name = "_company">company id</param>
+    /// <returns>the row; an empty buffer when the company has none</returns>
+    public static CELTCompanyCapability find(DataAreaId _company)
+    {
+        CELTCompanyCapability capability;
+
+        select firstonly capability
+            where capability.CompanyId == _company;
+
+        return capability;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>exist</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a company already has a capability row.
+    /// </summary>
+    /// <param name = "_company">company id</param>
+    /// <returns>true when present</returns>
+    public static boolean exist(DataAreaId _company)
+    {
+        return (select firstonly RecId from CELTCompanyCapability
+            where CELTCompanyCapability.CompanyId == _company).RecId != 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>lifecycleActionsEnabled</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether the CURRENT company has the Lifecycle actions capability checked - drives the
+    /// visibility of every lifecycle button (actions, payment history, action log).
+    /// </summary>
+    /// <returns>true when checked; false when unchecked or the company has no row</returns>
+    public static boolean lifecycleActionsEnabled()
+    {
+        return CELTCompanyCapability::find(curExt()).LifecycleActions == NoYes::Yes;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>selfBillingEnabled</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether the CURRENT company has the Self-billing capability checked - drives the
+    /// visibility of the Generate e-invoice buttons.
+    /// </summary>
+    /// <returns>true when checked; false when unchecked or the company has no row</returns>
+    public static boolean selfBillingEnabled()
+    {
+        return CELTCompanyCapability::find(curExt()).SelfBilling == NoYes::Yes;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+	<Label>@CELTLabels:CompanyCapabilities</Label>
+	<SaveDataPerCompany>No</SaveDataPerCompany>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TitleField1>CompanyId</TitleField1>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>CompanyId</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CompanyId</Name>
+			<AllowEditOnCreate>Yes</AllowEditOnCreate>
+			<ExtendedDataType>DataAreaId</ExtendedDataType>
+			<Label>@CELTLabels:CompanyColumn</Label>
+			<Mandatory>Yes</Mandatory>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>LifecycleActions</Name>
+			<Label>@CELTLabels:LifecycleActions</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>SelfBilling</Name>
+			<Label>@CELTLabels:SelfBilling</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>CompanyIdx</Name>
+			<AlternateKey>Yes</AlternateKey>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>CompanyId</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations />
+	<StateMachines />
+</AxTable>

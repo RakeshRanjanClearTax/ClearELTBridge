@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTLogUploader</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Batch that pushes pending telemetry rows from <c>CELTLog</c> to the Clear telemetry endpoint and
+/// marks exactly the rows it sent as uploaded. The event payload replicates the original
+/// ELTTelemetryLogsUploaderService byte-for-byte: a JSON array of 14-key objects (workspaceId,
+/// environment, erp, enterpriseId, company, workflowId, nodeId, category='Telemetry',
+/// action='DATA_EXTRACTION', description, value, eventTimestamp, erpUserId, programName) built with
+/// Newtonsoft writers so every value is correctly escaped. API request/response rows stay local
+/// (as in the original); rows are kept (flagged Uploaded) rather than archived, so a failed send is
+/// simply retried on the next run.
+/// </summary>
+internal class CELTLogUploader extends SysOperationServiceController
+{
+    // Rows serialized per run; the remainder is picked up by the next occurrence.
+    private const int MaxRowsPerRun = 1000;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new()
+    {
+        super();
+        this.parmClassName(classStr(CELTLogUploader));
+        this.parmMethodName(methodStr(CELTLogUploader, uploadLogs));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point. Queued reliable-async like the original uploader controller, so the
+    /// run survives the client session.
+    /// </summary>
+    /// <param name = "_args">menu args</param>
+    public static void main(Args _args)
+    {
+        CELTLogUploader controller = new CELTLogUploader();
+
+        controller.parmExecutionMode(SysOperationExecutionMode::ReliableAsynchronous);
+        controller.parmDialogCaption("@CELTLabels:LogUploader");
+        controller.startOperation();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>uploadLogs</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Serialises the pending telemetry rows, POSTs them, and on success marks exactly the
+    /// serialized rows as uploaded. A non-200 response leaves them for the next run.
+    /// </summary>
+    public void uploadLogs()
+    {
+        CELTLogger      logger      = new CELTLogger();
+        CELTApiClient   apiClient   = new CELTApiClient(logger);
+        CELTParameters  parameter;
+        str             payload;
+        container       recIds;
+
+        if (!CELTParameters::exist())
+        {
+            return;
+        }
+
+        parameter = CELTParameters::find();
+
+        new InteropPermission(InteropKind::ClrInterop).assert();
+
+        [payload, recIds] = this.buildPayload(parameter);
+        if (payload == '')
+        {
+            return;
+        }
+
+        // Transport identical to the original ELTTelemetryUploader: POST, application/json,
+        // auth token injected by the client - no extra headers.
+        apiClient.initialize(CELTAPIRequestType::TelemetryLog);
+        apiClient.setURL(parameter.BaseURL + parameter.TelemetryURL);
+        apiClient.setMethod(CELTAPIMethodType::POST);
+        apiClient.setContentType(CELTConstants::application_json);
+        apiClient.setRequestBody(payload);
+        apiClient.sendRequest();
+
+        if (apiClient.isSuccess())
+        {
+            this.markUploaded(recIds);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>buildPayload</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Builds the telemetry JSON array with Newtonsoft writers (correct escaping for every value)
+    /// and records the RecId of each serialized row.
+    /// </summary>
+    /// <param name = "_parameter">connector parameters</param>
+    /// <returns>[payload JSON or empty string when nothing is pending, container of RecIds sent]</returns>
+    private container buildPayload(CELTParameters _parameter)
+    {
+        CELTLog                     log;
+        container                   recIds;
+        int                         rows;
+
+        Newtonsoft.Json.Linq.JArray jArr = new Newtonsoft.Json.Linq.JArray();
+
+        while select log
+            where log.Uploaded == NoYes::No
+                && log.LogType != CELTLogType::None
+                && log.APIRequestType == CELTAPIRequestType::None
+        {
+            Newtonsoft.Json.Linq.JTokenWriter writer = new Newtonsoft.Json.Linq.JTokenWriter();
+            writer.WriteStartObject();
+
+            writer.WritePropertyName(CELTConstants::tWorkspaceId);
+            writer.WriteValue(_parameter.WorkspaceID);
+
+            writer.WritePropertyName(CELTConstants::tEnvironment);
+            writer.WriteValue(CELTConstants::Microsoft);
+
+            writer.WritePropertyName(CELTConstants::tErp);
+            writer.WriteValue(CELTConstants::Microsoft);
+
+            writer.WritePropertyName(CELTConstants::tEnterpriseId);
+            writer.WriteValue(_parameter.ErpInstanceID);
+
+            writer.WritePropertyName(CELTConstants::tCompany);
+            writer.WriteValue(log.company());
+
+            writer.WritePropertyName(CELTConstants::tWorkflowId);
+            writer.WriteValue(log.CommandID);
+
+            writer.WritePropertyName(CELTConstants::tNodeId);
+            writer.WriteValue(log.CommandID);
+
+            writer.WritePropertyName(CELTConstants::tCategory);
+            writer.WriteValue(CELTConstants::Telemetry);
+
+            writer.WritePropertyName(CELTConstants::tAction);
+            writer.WriteValue(CELTConstants::DATA_EXTRACTION);
+
+            writer.WritePropertyName(CELTConstants::tDescription);
+            writer.WriteValue(log.Message);
+
+            writer.WritePropertyName(CELTConstants::tValue);
+            writer.WriteValue(log.AdditionalDetails);
+
+            writer.WritePropertyName(CELTConstants::tEventTimestamp);
+            writer.WriteValue(any2Str(log.CreatedDateTime));
+
+            writer.WritePropertyName(CELTConstants::tErpUserId);
+            writer.WriteValue(curUserId());
+
+            writer.WritePropertyName(CELTConstants::tProgramName);
+            writer.WriteValue(log.ProgramName);
+
+            writer.WriteEndObject();
+            jArr.Add(writer.get_Token());
+
+            recIds += [log.RecId];
+            rows++;
+
+            if (rows >= MaxRowsPerRun)
+            {
+                break;
+            }
+        }
+
+        return [rows > 0 ? jArr.ToString() : '', recIds];
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>markUploaded</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Flags exactly the serialized rows as uploaded, by RecId - immune to concurrent inserts and
+    /// out-of-order RecId allocation across AOS instances.
+    /// </summary>
+    /// <param name = "_recIds">RecIds that were part of the sent payload</param>
+    private void markUploaded(container _recIds)
+    {
+        CELTLog log;
+        int     i;
+
+        ttsbegin;
+        for (i = 1; i <= conLen(_recIds); i++)
+        {
+            select firstonly forupdate log
+                where log.RecId == conPeek(_recIds, i);
+
+            if (log && log.Uploaded == NoYes::No)
+            {
+                log.Uploaded = NoYes::Yes;
+                log.update();
+            }
+        }
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

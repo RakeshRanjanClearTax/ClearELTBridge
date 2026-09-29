@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTLog</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTLog extends FormRun
+{
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sorts newest first. Opened from an invoice list with a selected record, shows only the
+    /// log lines stamped with that invoice's number (lines written before the stamp existed have
+    /// no number and stay under the full log).
+    /// </summary>
+    public void init()
+    {
+        CustInvoiceJour custJour;
+        ProjInvoiceJour projJour;
+        VendInvoiceJour vendJour;
+        str             docId;
+
+        super();
+
+        if (element.args() && element.args().record())
+        {
+            switch (element.args().dataset())
+            {
+                case tableNum(CustInvoiceJour):
+                    custJour = element.args().record() as CustInvoiceJour;
+                    docId    = custJour.InvoiceId;
+                    break;
+
+                case tableNum(ProjInvoiceJour):
+                    projJour = element.args().record() as ProjInvoiceJour;
+                    docId    = projJour.ProjInvoiceId;
+                    break;
+
+                case tableNum(VendInvoiceJour):
+                    vendJour = element.args().record() as VendInvoiceJour;
+                    docId    = vendJour.InvoiceId;
+                    break;
+            }
+        }
+
+        if (docId != '')
+        {
+            CELTLog_ds.query().dataSourceTable(tableNum(CELTLog)).addRange(fieldNum(CELTLog, InvoiceId)).value(SysQuery::value(docId));
+        }
+
+        CELTLog_ds.query().dataSourceTable(tableNum(CELTLog)).addSortField(fieldNum(CELTLog, CreatedDateTime), SortOrder::Descending);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="">
+			<Control>
+				<Name>DownloadRequestData</Name>
+				<Type>Button</Type>
+				<Methods>
+					<Method>
+						<Name>clicked</Name>
+						<Source><![CDATA[
+        /// <summary>
+        /// Downloads the stored request payload of the selected row.
+        /// </summary>
+        public void clicked()
+        {
+            super();
+            CELTLogger::downloadContainer(CELTLog.RequestData, 'request');
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+			<Control>
+				<Name>DownloadResponseData</Name>
+				<Type>Button</Type>
+				<Methods>
+					<Method>
+						<Name>clicked</Name>
+						<Source><![CDATA[
+        /// <summary>
+        /// Downloads the stored response payload of the selected row.
+        /// </summary>
+        public void clicked()
+        {
+            super();
+            CELTLogger::downloadContainer(CELTLog.ResponseData, 'response');
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+		</DataControls>
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CELTLog</Name>
+			<Table>CELTLog</Table>
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<Fields>
+				<AxFormDataSourceField>
+					<DataField>LogType</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CommandID</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>InvoiceId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>ProgramName</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Message</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>AdditionalDetails</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>APIRequestType</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>APIMethodType</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>URL</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>StatusCode</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Uploaded</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CreatedDateTime</DataField>
+				</AxFormDataSourceField>
+			</Fields>
+			<ReferencedDataSources />
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:Logs</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<Style xmlns="">SimpleList</Style>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormActionPaneControl">
+				<Name>ActionPane</Name>
+				<Type>ActionPane</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonGroupControl">
+						<Name>DownloadFiles</Name>
+						<Type>ButtonGroup</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormButtonControl">
+								<Name>DownloadRequestData</Name>
+								<Type>Button</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Text>@CELTLabels:RequestData</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormButtonControl">
+								<Name>DownloadResponseData</Name>
+								<Type>Button</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Text>@CELTLabels:ResponseData</Text>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:DownloadFiles</Caption>
+					</AxFormControl>
+				</Controls>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Grid_LogType</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>LogType</DataField>
+						<DataSource>CELTLog</DataSource>
+						<Items />
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoiceId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceId</DataField>
+						<DataSource>CELTLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_CommandID</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CommandID</DataField>
+						<DataSource>CELTLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ProgramName</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>ProgramName</DataField>
+						<DataSource>CELTLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Message</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>Message</DataField>
+						<DataSource>CELTLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Grid_APIRequestType</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>APIRequestType</DataField>
+						<DataSource>CELTLog</DataSource>
+						<Items />
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Grid_APIMethodType</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>APIMethodType</DataField>
+						<DataSource>CELTLog</DataSource>
+						<Items />
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_URL</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>URL</DataField>
+						<DataSource>CELTLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_StatusCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>StatusCode</DataField>
+						<DataSource>CELTLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Grid_Uploaded</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>Uploaded</DataField>
+						<DataSource>CELTLog</DataSource>
+						<Items />
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateTimeControl">
+						<Name>Grid_CreatedDateTime</Name>
+						<Type>DateTime</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CreatedDateTime</DataField>
+						<DataSource>CELTLog</DataSource>
+					</AxFormControl>
+				</Controls>
+				<DataSource>CELTLog</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

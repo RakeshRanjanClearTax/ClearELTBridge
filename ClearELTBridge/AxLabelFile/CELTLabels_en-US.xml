@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxLabelFile xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTLabels_en-US</Name>
+	<LabelContentFileName>CELTLabels.en-US.label.txt</LabelContentFileName>
+	<LabelFileId>CELTLabels</LabelFileId>
+	<RelativeUriInModelStore>ClearELTBridge\ClearELTBridge\AxLabelFile\LabelResources\en-US\CELTLabels.en-US.label.txt</RelativeUriInModelStore>
+</AxLabelFile>

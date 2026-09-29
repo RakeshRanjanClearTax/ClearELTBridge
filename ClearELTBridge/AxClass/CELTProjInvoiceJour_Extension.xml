@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTProjInvoiceJour_Extension</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Carries the CELT e-invoicing header fields from the project invoice proposal to the posted
+/// project invoice journal.
+/// </summary>
+[ExtensionOf(tableStr(ProjInvoiceJour))]
+final class CELTProjInvoiceJour_Extension
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>initFromProjProposal</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Carries the CELT e-invoicing header fields (UAE transaction type / billing frequency /
+    /// invoicing period / customs reference, FR tax point date code) from the invoice proposal to
+    /// the posted journal - Finance and Operations does not copy extension fields at posting by
+    /// itself, and a missed copy posts silently blank.
+    /// </summary>
+    public void initFromProjProposal(ProjProposalJour projProposalJour)
+    {
+        next initFromProjProposal(projProposalJour);
+
+        this.CELTAETransactionType    = projProposalJour.CELTAETransactionType;
+        this.CELTAEFrequencyOfBilling = projProposalJour.CELTAEFrequencyOfBilling;
+        this.CELTInvoicePeriodStart   = projProposalJour.CELTInvoicePeriodStart;
+        this.CELTInvoicePeriodEnd     = projProposalJour.CELTInvoicePeriodEnd;
+        this.CELTAECustomsRefNumber   = projProposalJour.CELTAECustomsRefNumber;
+        this.CELTFRVatDueDateCode     = projProposalJour.CELTFRVatDueDateCode;
+        this.CELTAEPrincipalId        = projProposalJour.CELTAEPrincipalId;
+        this.CELTAEInvoiceNote        = projProposalJour.CELTAEInvoiceNote;
+        this.CELTAECreditNoteReason   = projProposalJour.CELTAECreditNoteReason;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

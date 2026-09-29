@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTFieldSetup</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Per-company visibility setup for the CELT custom input fields: every field the model adds to a
+/// standard form has one row here, and its Enabled flag decides whether the control shows on the
+/// form (CELTFieldSetupVisibility hides disabled controls at form open). A field with no row is
+/// treated as enabled, so the setup can never blank out a form by accident.
+/// </summary>
+public class CELTFieldSetup extends common
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>isEnabled</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether the given custom field is enabled for the given area in the current company.
+    /// Area Any means "enabled anywhere" - used by forms that are not document-specific (legal
+    /// entity, products, tax codes, addresses). A missing row counts as enabled - the default is
+    /// to show everything.
+    /// </summary>
+    /// <param name = "_fieldName">the table field name, e.g. CELTAETransactionType</param>
+    /// <param name = "_area">Sales, Purchase, Project - or Any for the OR of all three</param>
+    /// <returns>true when the field should be visible in that area</returns>
+    public static boolean isEnabled(str _fieldName, CELTFieldArea _area = CELTFieldArea::Any)
+    {
+        CELTFieldSetup setup;
+
+        select firstonly EnabledSales, EnabledPurchase, EnabledProject, RecId from setup
+            where setup.FieldName == _fieldName;
+
+        if (!setup.RecId)
+        {
+            return true;
+        }
+
+        switch (_area)
+        {
+            case CELTFieldArea::Sales:
+                return setup.EnabledSales == NoYes::Yes;
+            case CELTFieldArea::Purchase:
+                return setup.EnabledPurchase == NoYes::Yes;
+            case CELTFieldArea::Project:
+                return setup.EnabledProject == NoYes::Yes;
+            default:
+                return setup.EnabledSales == NoYes::Yes
+                    || setup.EnabledPurchase == NoYes::Yes
+                    || setup.EnabledProject == NoYes::Yes;
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureSeeded</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Inserts a row for every CELT custom input field that has none yet (enabled everywhere by
+    /// default, so existing behavior is unchanged), and refreshes the description text from the
+    /// labels.
+    /// </summary>
+    public static void ensureSeeded()
+    {
+        container fields = [
+            ['CELTAETransactionType',       "@CELTLabels:AETransactionType"],
+            ['CELTAEFrequencyOfBilling',    "@CELTLabels:AEFrequencyOfBilling"],
+            ['CELTInvoicePeriodStart',      "@CELTLabels:InvoicePeriodStart"],
+            ['CELTInvoicePeriodEnd',        "@CELTLabels:InvoicePeriodEnd"],
+            ['CELTAECustomsRefNumber',      "@CELTLabels:AECustomsRefNumber"],
+            ['CELTFRVatDueDateCode',        "@CELTLabels:FRVatDueDateCode"],
+            ['CELTAEPrincipalId',           "@CELTLabels:AEPrincipalId"],
+            ['CELTAEInvoiceNote',           "@CELTLabels:AEInvoiceNote"],
+            ['CELTAECreditNoteReason',      "@CELTLabels:AECreditNoteReason"],
+            ['CELTAELegalRegType',          "@CELTLabels:AELegalRegType"],
+            ['CELTAEAuthorityName',         "@CELTLabels:AEAuthorityName"],
+            ['CELTAEPassportCountry',       "@CELTLabels:AEPassportCountry"],
+            ['CELTAEBeneficiaryId',         "@CELTLabels:AEBeneficiaryId"],
+            ['CELTAEServiceAccountingCode', "@CELTLabels:AEServiceAccountingCode"],
+            ['CELTAERcmType',               "@CELTLabels:AERcmType"],
+            ['CELTAEItemType',              "@CELTLabels:AEItemType"],
+            ['CELTAETaxCategory',           "@CELTLabels:AETaxCategory"],
+            ['CELTAEExemptionReasonCode',   "@CELTLabels:AEExemptionReasonCode"],
+            ['CELTAEExemptionReason',       "@CELTLabels:AEExemptionReason"],
+            ['CELTAEFreeZoneIndicator',     "@CELTLabels:AEFreeZoneIndicator"]];
+
+        CELTFieldSetup setup;
+        int            i;
+
+        ttsbegin;
+
+        for (i = 1; i <= conLen(fields); i++)
+        {
+            container entry       = conPeek(fields, i);
+            str       fieldName   = conPeek(entry, 1);
+            str       description = conPeek(entry, 2);
+
+            select forupdate firstonly setup
+                where setup.FieldName == fieldName;
+
+            if (!setup.RecId)
+            {
+                setup.clear();
+                setup.FieldName       = fieldName;
+                setup.Description     = description;
+                setup.EnabledSales    = NoYes::Yes;
+                setup.EnabledPurchase = NoYes::Yes;
+                setup.EnabledProject  = NoYes::Yes;
+                setup.insert();
+            }
+            else if (setup.Description != description)
+            {
+                setup.Description = description;
+                setup.update();
+            }
+        }
+
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+	<Label>@CELTLabels:FieldSetup</Label>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TitleField1>Description</TitleField1>
+	<TitleField2>FieldName</TitleField2>
+	<CacheLookup>EntireTable</CacheLookup>
+	<SaveDataPerCompany>Yes</SaveDataPerCompany>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>Overview</Name>
+			<Label>@CELTLabels:FieldSetup</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>Description</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>FieldName</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>EnabledSales</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>EnabledPurchase</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>EnabledProject</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>FieldName</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<Label>@CELTLabels:TechnicalName</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Description</Name>
+			<AllowEdit>No</AllowEdit>
+			<AllowEditOnCreate>No</AllowEditOnCreate>
+			<Label>@CELTLabels:FieldLabel</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>EnabledSales</Name>
+			<Label>@CELTLabels:EnabledSales</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>EnabledPurchase</Name>
+			<Label>@CELTLabels:EnabledPurchase</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>EnabledProject</Name>
+			<Label>@CELTLabels:EnabledProject</Label>
+			<EnumType>NoYes</EnumType>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>FieldNameIdx</Name>
+			<AlternateKey>Yes</AlternateKey>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>FieldName</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations />
+	<StateMachines />
+</AxTable>

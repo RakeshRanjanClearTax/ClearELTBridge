@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxFormExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CustInvoiceJournal.ClearELTBridge</Name>
+	<ControlModifications />
+	<Controls>
+		<AxFormExtensionControl xmlns="">
+			<Name>CELTEInvoiceTabExt</Name>
+			<FormControl xmlns=""
+				i:type="AxFormActionPaneTabControl">
+				<Name>CELT_EInvoiceTab</Name>
+				<Type>ActionPaneTab</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonGroupControl">
+						<Name>CELT_GenerateGroup</Name>
+						<Type>ButtonGroup</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>CELTGenerateEInvoice</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Big>Yes</Big>
+								<DataSource>CustInvoiceJour</DataSource>
+								<MenuItemName>CELTIntegrationSync</MenuItemName>
+								<MenuItemType>Action</MenuItemType>
+								<Text>@CELTLabels:ExtractAndUpload</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>CELTResponseLog</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>CustInvoiceJour</DataSource>
+								<MenuItemName>CELTEInvoiceResponseLog</MenuItemName>
+								<MenuItemType>Display</MenuItemType>
+								<Text>@CELTLabels:EInvoiceResponseLog</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnCELTGetDocumentPdf</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>CustInvoiceJour</DataSource>
+								<MenuItemName>CELTGetDocumentPdf</MenuItemName>
+								<MenuItemType>Action</MenuItemType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:EInvoice</Caption>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonGroupControl">
+						<Name>CELT_LifecycleGroup</Name>
+						<Type>ButtonGroup</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnCELTLcComplete</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>CustInvoiceJour</DataSource>
+								<MenuItemName>CELTLcComplete</MenuItemName>
+								<MenuItemType>Action</MenuItemType>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnCELTLcConfirmPayment</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Big>Yes</Big>
+								<DataSource>CustInvoiceJour</DataSource>
+								<MenuItemName>CELTLcConfirmPayment</MenuItemName>
+								<MenuItemType>Action</MenuItemType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:LifecycleActions</Caption>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonGroupControl">
+						<Name>CELT_InquiriesGroup</Name>
+						<Type>ButtonGroup</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnCELTPaymentHistory</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>CustInvoiceJour</DataSource>
+								<MenuItemName>CELTPaymentHistory</MenuItemName>
+								<MenuItemType>Display</MenuItemType>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnCELTLifecycleActionLog</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>CustInvoiceJour</DataSource>
+								<MenuItemName>CELTLifecycleActionLog</MenuItemName>
+								<MenuItemType>Display</MenuItemType>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:Logs</Caption>
+					</AxFormControl>
+				</Controls>
+				<Caption>@CELTLabels:EInvoice</Caption>
+			</FormControl>
+			<Parent>ActionPane</Parent>
+			<PositionType>End</PositionType>
+		</AxFormExtensionControl>
+		<AxFormExtensionControl xmlns="">
+			<Name>CELTEInvoiceStatusColumn</Name>
+			<FormControl xmlns=""
+				i:type="AxFormComboBoxControl">
+				<Name>NavGrid_CELTEInvoiceStatus</Name>
+				<Type>ComboBox</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<DataField>CELTEInvoiceStatus</DataField>
+				<DataSource>CustInvoiceJour</DataSource>
+				<Items />
+			</FormControl>
+			<Parent>NavGrid</Parent>
+			<PositionType>End</PositionType>
+		</AxFormExtensionControl>
+	</Controls>
+	<DataSources />
+</AxFormExtension>

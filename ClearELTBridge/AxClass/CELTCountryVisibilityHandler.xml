@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCountryVisibilityHandler</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Checkbox-driven visibility of the CELT controls on the standard journal forms (Company
+/// capabilities setup): the Lifecycle actions box shows the lifecycle buttons and logs, the
+/// Self-billing box shows the Generate e-invoice buttons. Form EXTENSIONS cannot carry init
+/// code, so the visibility is applied through form events; the CELT list forms do the same in
+/// their own init. The capability and country gates in the services stay as the hard stop.
+/// </summary>
+internal final class CELTCountryVisibilityHandler
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>custInvoiceJournalOnInitialized</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Customer invoice journal: Generate follows Self-billing; the lifecycle and logs groups
+    /// follow Lifecycle actions.
+    /// </summary>
+    [FormEventHandler(formStr(CustInvoiceJournal), FormEventType::Initialized)]
+    public static void custInvoiceJournalOnInitialized(xFormRun _sender, FormEventArgs _e)
+    {
+        boolean lifecycleOn   = CELTLifecycleActionService::isLifecycleActionsVisible();
+        boolean selfBillingOn = CELTLifecycleActionService::isSelfBillingVisible();
+
+        CELTCountryVisibilityHandler::setVisible(_sender, 'CELTGenerateEInvoice', selfBillingOn);
+        CELTCountryVisibilityHandler::setVisible(_sender, 'CELT_LifecycleGroup', lifecycleOn);
+        CELTCountryVisibilityHandler::setVisible(_sender, 'CELT_InquiriesGroup', lifecycleOn);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>projInvoiceJournalOnInitialized</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Project invoice journal: same rules as the customer journal, on the menu buttons.
+    /// </summary>
+    [FormEventHandler(formStr(ProjInvoiceJournal), FormEventType::Initialized)]
+    public static void projInvoiceJournalOnInitialized(xFormRun _sender, FormEventArgs _e)
+    {
+        boolean lifecycleOn   = CELTLifecycleActionService::isLifecycleActionsVisible();
+        boolean selfBillingOn = CELTLifecycleActionService::isSelfBillingVisible();
+
+        CELTCountryVisibilityHandler::setVisible(_sender, 'CELTGenerateEInvoice', selfBillingOn);
+        CELTCountryVisibilityHandler::setVisible(_sender, 'BtnCELTLifecycleMenu', lifecycleOn);
+        CELTCountryVisibilityHandler::setVisible(_sender, 'BtnCELTLogsMenu', lifecycleOn);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>projInvoiceListPageOnInitialized</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Project invoice list page (its extension carries the same Generate button as the journal):
+    /// Generate follows Self-billing.
+    /// </summary>
+    [FormEventHandler(formStr(ProjInvoiceListPage), FormEventType::Initialized)]
+    public static void projInvoiceListPageOnInitialized(xFormRun _sender, FormEventArgs _e)
+    {
+        CELTCountryVisibilityHandler::setVisible(_sender, 'CELTGenerateEInvoice', CELTLifecycleActionService::isSelfBillingVisible());
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>vendInvoiceJournalOnInitialized</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Vendor invoice journal: Generate follows Self-billing (the response log always shows).
+    /// </summary>
+    [FormEventHandler(formStr(VendInvoiceJournal), FormEventType::Initialized)]
+    public static void vendInvoiceJournalOnInitialized(xFormRun _sender, FormEventArgs _e)
+    {
+        CELTCountryVisibilityHandler::setVisible(_sender, 'CELTGenerateEInvoice', CELTLifecycleActionService::isSelfBillingVisible());
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setVisible</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sets one control's visibility. Controls added by form extensions are resolved by name at
+    /// runtime; a missing name is simply skipped, so the handler survives control renames
+    /// without crashing the journal form.
+    /// </summary>
+    /// <param name = "_formRun">the initialized form</param>
+    /// <param name = "_controlName">name of the extension control</param>
+    /// <param name = "_visible">whether it should show</param>
+    private static void setVisible(xFormRun _formRun, str _controlName, boolean _visible)
+    {
+        FormControl control = _formRun.design().controlName(_controlName);
+
+        if (control)
+        {
+            control.visible(_visible);
+        }
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

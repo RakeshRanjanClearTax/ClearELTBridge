@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTPaymentHistory</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTPaymentHistory extends FormRun
+{
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Opened from an invoice, shows only that document's reported payments; standalone, all.
+    /// </summary>
+    public void init()
+    {
+        CustInvoiceJour custJour;
+        ProjInvoiceJour projJour;
+        str             invoiceId;
+
+        super();
+
+        if (element.args() && element.args().record())
+        {
+            switch (element.args().dataset())
+            {
+                case tableNum(CustInvoiceJour):
+                    custJour  = element.args().record() as CustInvoiceJour;
+                    invoiceId = custJour.InvoiceId;
+                    break;
+
+                case tableNum(ProjInvoiceJour):
+                    projJour  = element.args().record() as ProjInvoiceJour;
+                    invoiceId = projJour.ProjInvoiceId;
+                    break;
+            }
+        }
+
+        if (invoiceId != '')
+        {
+            CELTPaymentReportLine_ds.query().dataSourceTable(tableNum(CELTPaymentReportLine)).addRange(fieldNum(CELTPaymentReportLine, InvoiceId)).value(queryValue(invoiceId));
+        }
+
+        CELTPaymentReportLine_ds.query().dataSourceTable(tableNum(CELTPaymentReportLine)).addSortField(fieldNum(CELTPaymentReportLine, CreatedDateTime), SortOrder::Descending);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CELTPaymentReportLine</Name>
+			<Table>CELTPaymentReportLine</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:PaymentHistory</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateTimeControl">
+						<Name>Grid_CreatedDateTime</Name>
+						<Type>DateTime</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CreatedDateTime</DataField>
+						<DataSource>CELTPaymentReportLine</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DocumentId</DataField>
+						<DataSource>CELTPaymentReportLine</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoiceId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceId</DataField>
+						<DataSource>CELTPaymentReportLine</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_CollectionDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CollectionDate</DataField>
+						<DataSource>CELTPaymentReportLine</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_Rate</Name>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>Rate</DataField>
+						<DataSource>CELTPaymentReportLine</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_AmountCollected</Name>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>AmountCollected</DataField>
+						<DataSource>CELTPaymentReportLine</DataSource>
+					</AxFormControl>
+				</Controls>
+				<DataSource>CELTPaymentReportLine</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

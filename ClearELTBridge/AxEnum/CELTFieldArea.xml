@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxEnum xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTFieldArea</Name>
+	<Label>@CELTLabels:FieldArea</Label>
+	<UseEnumValue>No</UseEnumValue>
+	<EnumValues>
+		<AxEnumValue>
+			<Name>Any</Name>
+			<Label>@CELTLabels:FieldAreaAny</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>Sales</Name>
+			<Label>@CELTLabels:EnabledSales</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>Purchase</Name>
+			<Label>@CELTLabels:EnabledPurchase</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>Project</Name>
+			<Label>@CELTLabels:EnabledProject</Label>
+		</AxEnumValue>
+	</EnumValues>
+	<IsExtensible>true</IsExtensible>
+</AxEnum>

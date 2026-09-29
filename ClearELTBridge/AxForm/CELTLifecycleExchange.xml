@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTLifecycleExchange</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+/// <summary>
+/// The request and reply for one lifecycle action, side by side - the fastest way to see whether
+/// a rejection was about the business key, the date format or the action itself.
+/// </summary>
+[Form]
+public class CELTLifecycleExchange extends FormRun
+{
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Shows the log row it was opened from; standalone it shows the newest attempt.
+    /// </summary>
+    public void init()
+    {
+        CELTLifecycleActionLog callerLog;
+
+        super();
+
+        if (element.args() && element.args().record() && element.args().dataset() == tableNum(CELTLifecycleActionLog))
+        {
+            callerLog = element.args().record() as CELTLifecycleActionLog;
+            CELTLifecycleActionLog_ds.query().dataSourceTable(tableNum(CELTLifecycleActionLog)).addRange(fieldNum(CELTLifecycleActionLog, RecId)).value(queryValue(callerLog.RecId));
+        }
+
+        CELTLifecycleActionLog_ds.query().dataSourceTable(tableNum(CELTLifecycleActionLog)).addSortField(fieldNum(CELTLifecycleActionLog, CreatedDateTime), SortOrder::Descending);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CELTLifecycleActionLog</Name>
+			<Table>CELTLifecycleActionLog</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:LifecycleExchange</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>HeaderGroup</Name>
+				<Type>Group</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Header_DocumentId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DocumentId</DataField>
+						<DataSource>CELTLifecycleActionLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Header_ActionType</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>ActionType</DataField>
+						<DataSource>CELTLifecycleActionLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Header_StatusCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>StatusCode</DataField>
+						<DataSource>CELTLifecycleActionLog</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Header_Success</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>Success</DataField>
+						<DataSource>CELTLifecycleActionLog</DataSource>
+						<Items />
+					</AxFormControl>
+				</Controls>
+				<Columns>4</Columns>
+				<ColumnsMode>Fixed</ColumnsMode>
+				<FrameType>None</FrameType>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>BodyGroup</Name>
+				<Type>Group</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormGroupControl">
+						<Name>RequestGroup</Name>
+						<Type>Group</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormStringControl">
+								<Name>RequestBodyCtrl</Name>
+								<Type>String</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>RequestBody</DataField>
+								<DataSource>CELTLifecycleActionLog</DataSource>
+								<DisplayHeight>25</DisplayHeight>
+								<MultiLine>Yes</MultiLine>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:RequestData</Caption>
+						<FrameOptionButton>Hide</FrameOptionButton>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormGroupControl">
+						<Name>ResponseGroup</Name>
+						<Type>Group</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormStringControl">
+								<Name>ResponseBodyCtrl</Name>
+								<Type>String</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataField>ResponseBody</DataField>
+								<DataSource>CELTLifecycleActionLog</DataSource>
+								<DisplayHeight>25</DisplayHeight>
+								<MultiLine>Yes</MultiLine>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:ResponseData</Caption>
+						<FrameOptionButton>Hide</FrameOptionButton>
+					</AxFormControl>
+				</Controls>
+				<Columns>2</Columns>
+				<ColumnsMode>Fixed</ColumnsMode>
+				<FrameType>None</FrameType>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTConstants</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Load-bearing string constants for the Clear ELT Bridge connector.
+/// Endpoint paths, header names, command types, operators and JSON keys are kept
+/// byte-compatible with the original ClearELT (CELTISV) package.
+/// </summary>
+internal final class CELTConstants
+{
+    // Command / control strings
+    public static str DATA_EXTRACTION           = 'DATA_EXTRACTION';
+    public static str DATA_POSTING              = 'DATA_POSTING';
+    public static str GENERATE_IRN              = 'GENERATE_IRN';
+    public static str defaults                  = 'default';
+
+    // Sync GENERATE_IRN payload JSON keys
+    public static str pAction                   = 'action';
+    public static str pCommandType              = 'commandType';
+    public static str pCommandParameter         = 'commandParameter';
+    public static str pSalesDoc                 = 'salesDoc';
+    public static str pAccountingDoc            = 'accountingDoc';
+    public static str pFiscalYear               = 'fiscalYear';
+    public static str pCompanyCode              = 'companyCode';
+
+    // Writeback (DATA_POSTING) JSON keys and tokens
+    public static str wIdempotencyKey           = 'idempotencyKey';
+    public static str wInsertTable              = 'insertTable';
+    public static str wName                     = 'name';
+    public static str wData                     = 'data';
+    public static str wType                     = 'type';
+    public static str wValue                    = 'value';
+    public static str wTypeValue                = 'VALUE';
+    public static str wTypeTableMethod          = 'TABLE_METHOD';
+    public static str wMethodValidateWrite      = 'validateWrite';
+    public static str wMethodInsert             = 'insert';
+    public static str wFieldIdempotencyKey      = 'IdempotencyKey';
+    public static str wFieldUniqueId            = 'UniqueId';
+
+    // Backend writeback config names the original landing table; the bridge lands it here.
+    public static str wLegacyWritebackTable     = 'ELTIRN_WRITEBACK';
+    public static str wBridgeWritebackTable     = 'ClearTaxEInvoiceResponseTable';
+
+    // Status success markers (any2Str(HttpStatusCode) yields the enum name "OK")
+    public static str status200                 = '200';
+    public static str OK                        = 'OK';
+
+    // Header names (exact, do not change)
+    public static str x_clear_auth_token        = 'x-clear-auth-token';
+    public static str x_erp_instance_id         = 'x-erp-instance-id';
+    public static str x_workspace_id            = 'x-workspace-id';
+    public static str x_idempotency_key         = 'x-idempotency-key';
+    public static str x_cleartax_auth_token     = 'x-cleartax-auth-token';
+    public static str x_clear_vat               = 'x-clear-vat';
+    public static str x_clear_branch            = 'x-clear-branch';
+    public static str x_cleartax_auth_token_lc  = 'x-cleartax-auth-token';
+    public static str x_clear_country_code      = 'x-clear-country-code';
+    public static str x_clear_siren             = 'x-clear-siren';
+    public static str x_clear_siret             = 'x-clear-siret';
+    public static str x_clear_tin               = 'x-clear-tin';
+    public static str einvoice_type             = 'einvoice-type';
+    public static str ContentType               = 'Content-Type';
+    public static str fileContentType           = 'fileContentType';
+
+    // Content types
+    public static str application_zip           = 'application/zip';
+    public static str application_json          = 'application/json';
+
+    // Query-param / content keys
+    public static str file_name                 = 'file_name';
+    public static str command_id                = 'command_id';
+    public static str ampersand                 = '&';
+    public static str equalTo                   = '=';
+    public static str data_Zip                  = 'data.zip';
+    public static str jsonext                   = '.json';
+    public static str emptyStr                  = '';
+    public static str questionMark              = '?';
+
+    // Temp-store file names
+    public static str RequestData               = 'Request data';
+    public static str ResponseData              = 'Response data';
+
+    // Range / operator tokens (SysQuery string syntax)
+    public static str lessThan                  = '<';
+    public static str greaterThan               = '>';
+    public static str lessThanorEqualTo         = '<=';
+    public static str greaterThanorEqualTo      = '>=';
+    public static str notEqualTo                = '!=';
+    public static str isLike                    = 'like';
+    public static str AND                       = 'AND';
+    public static str OR                        = 'OR';
+    public static str Ascending                 = 'ASC';
+    public static str Descending                = 'DESC';
+    public static str rangeSeparator            = '..';
+
+    // Join modes (simplified JSON config)
+    public static str innerJoin                 = 'InnerJoin';
+    public static str outerJoin                 = 'OuterJoin';
+    public static str existsJoin                = 'ExistsJoin';
+    public static str notExistsJoin             = 'NoExistsJoin';
+
+    // Simplified JSON config keys
+    public static str cfgTable                  = 'table';
+    public static str cfgFields                 = 'fields';
+    public static str cfgRanges                 = 'ranges';
+    public static str cfgJoins                  = 'joins';
+    public static str cfgOrderBy                = 'orderBy';
+    public static str cfgField                  = 'field';
+    public static str cfgValue                  = 'value';
+    public static str cfgMode                   = 'mode';
+    public static str cfgLinks                  = 'links';
+    public static str cfgFrom                   = 'from';
+    public static str cfgTo                     = 'to';
+    public static str cfgDirection              = 'direction';
+
+    // Get-command response JSON keys
+    public static str jResult                   = 'result';
+    public static str jCommandId                = 'commandId';
+    public static str jCommand                  = 'command';
+    public static str jJobType                  = 'jobType';
+    public static str jMetadata                 = 'metadata';
+    public static str jErpConfig                = 'erpConfig';
+    public static str jFileDetails              = 'fileDetails';
+    public static str jUrl                      = 'url';
+    public static str jStatus                   = 'status';
+    public static str jAcknowledgmentInfo       = 'acknowledgmentInfo';
+    public static str jPostingInfo              = 'postingInfo';
+    public static str jPostingResult            = 'postingResult';
+    public static str AckPostSuccess            = 'POST_SUCCESS';
+    public static str AckPostFailed             = 'POST_FAILED';
+
+    // Lifecycle actions (Clear France API v4.1 - 6/8)
+    public static str jDocumentId               = 'documentId';
+    public static str jDocumentNumber           = 'documentNumber';
+    public static str jDocumentDate             = 'documentDate';
+    public static str jTaxpayerIdentifier       = 'taxpayerIdentifier';
+    public static str jDocumentTypeCode         = 'documentTypeCode';
+    public static str DefaultDocTypeCode        = '380';
+    public static str jActionType               = 'actionType';
+    public static str jActionData               = 'actionData';
+    public static str jReasonCodes              = 'reasonCodes';
+    public static str jComment                  = 'comment';
+    public static str jCollectionDate           = 'collectionDate';
+    public static str jVatRateSplit             = 'vatRateSplit';
+    public static str jRate                     = 'rate';
+    public static str jAmountCollectedInclVat   = 'amountCollectedIncludingVat';
+    public static str LcAcknowledge             = 'ACKNOWLEDGE';
+    public static str LcApprove                 = 'APPROVE';
+    public static str LcDispute                 = 'DISPUTE';
+    public static str LcSuspend                 = 'SUSPEND';
+    public static str LcRefuse                  = 'REFUSE';
+    public static str LcComplete                = 'COMPLETE';
+    public static str LcConfirmPayment          = 'CONFIRM_PAYMENT';
+    public static str FlowB2BEreport            = 'SALES_B2B_EREPORT';
+    public static str FlowB2CEreport            = 'SALES_B2C_EREPORT';
+    public static str FlowSales                 = 'SALES';
+    public static str FlowPurchase              = 'PURCHASE';
+    public static str DefaultLifecycleCountry   = 'FR';
+    public static str jSuccess                  = 'success';
+    public static str jMessage                  = 'message';
+    public static str jPayload                  = 'payload';
+
+    // Trigger-ingestion body JSON keys
+    public static str jS3Details                = 's3Details';
+
+    // Telemetry-upload JSON keys and values (byte-compatible with CELTISV)
+    public static str tWorkspaceId              = 'workspaceId';
+    public static str tEnvironment              = 'environment';
+    public static str tErp                      = 'erp';
+    public static str tEnterpriseId             = 'enterpriseId';
+    public static str tCompany                  = 'company';
+    public static str tWorkflowId               = 'workflowId';
+    public static str tNodeId                   = 'nodeId';
+    public static str tCategory                 = 'category';
+    public static str tAction                   = 'action';
+    public static str tDescription              = 'description';
+    public static str tValue                    = 'value';
+    public static str tEventTimestamp           = 'eventTimestamp';
+    public static str tErpUserId                = 'erpUserId';
+    public static str tProgramName              = 'programName';
+    public static str Telemetry                 = 'Telemetry';
+    public static str Microsoft                 = 'Microsoft';
+
+    // Default API URLs (relative paths + base) — seeded into CELTParameters
+    public static str BaseURL_Sandbox           = 'https://api-sandbox.clear.in/';
+    public static str BaseURL_Prod              = 'https://api.clear.in/';
+    public static str PingURL                   = 'one-integration/erp_connection/ping';
+    public static str GetCommandURL             = 'one-integration/command/get';
+    public static str GetPreSignedURL           = 'one-integration/action/pre_sign?';
+    public static str TelemetryURL              = 'integration/telemetry';
+    public static str TriggerIngestionURL       = 'one-integration/command/send/result';
+    public static str AccessTokenURL            = 'v1/authz/token';
+
+    // Shipped defaults for Clear ELT parameters - seeded on first open and backfilled into blank
+    // fields; every one of them stays editable on the form.
+    public static str Default_BaseURL           = 'https://api.mea.cleartax.com/';
+    public static str Default_GetCommandURLSync = 'https://api.mea.cleartax.com/one-integration/command/sync/get';
+    public static str Default_PresignedURLSync  = 'https://api.mea.cleartax.com/one-integration/sync/EINVOICE_GLOBAL';
+    public static str Default_GetStatusURL      = 'https://api.mea.cleartax.com/one-integration/command/get';
+    public static str Default_AckURL            = 'https://api.mea.cleartax.com/one-integration/command/send/result';
+    public static str Default_DocumentPrintURL  = 'https://api-sandbox.mea.cleartax.com/einvoice/v1/documents/print';
+
+    // Provisioning placeholders (from Clear portal)
+    public static str ERPInstanceId             = 'To be obtained from CLEAR Re-Tool';
+    public static str WorkspaceId               = 'To be obtained from CLEAR Portal.';
+}
+]]></Declaration>
+		<Methods />
+	</SourceCode>
+</AxClass>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxFormExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>VendInvoiceJournal.ClearELTBridge</Name>
+	<ControlModifications />
+	<Controls>
+		<AxFormExtensionControl xmlns="">
+			<Name>CELTEInvoiceGroup</Name>
+			<FormControl xmlns=""
+				i:type="AxFormButtonGroupControl">
+				<Name>CELT_EInvoice</Name>
+				<Type>ButtonGroup</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormMenuFunctionButtonControl">
+						<Name>CELTGenerateEInvoice</Name>
+						<Type>MenuFunctionButton</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataSource>VendInvoiceJour</DataSource>
+						<MenuItemName>CELTIntegrationSync</MenuItemName>
+						<MenuItemType>Action</MenuItemType>
+						<Text>@CELTLabels:ExtractAndUpload</Text>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormMenuFunctionButtonControl">
+						<Name>CELTResponseLog</Name>
+						<Type>MenuFunctionButton</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataSource>VendInvoiceJour</DataSource>
+						<MenuItemName>CELTEInvoiceResponseLog</MenuItemName>
+						<MenuItemType>Display</MenuItemType>
+						<Text>@CELTLabels:EInvoiceResponseLog</Text>
+					</AxFormControl>
+				</Controls>
+				<Caption>@CELTLabels:EInvoice</Caption>
+			</FormControl>
+			<Parent>ApplicationBar</Parent>
+			<PositionType>End</PositionType>
+		</AxFormExtensionControl>
+	</Controls>
+	<DataSources />
+</AxFormExtension>

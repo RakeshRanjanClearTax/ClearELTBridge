@@ -1,0 +1,588 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTIncomingSalesInvoiceDetails</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTIncomingSalesInvoiceDetails extends FormRun
+{
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// When opened from the purchase invoice list, shows only the selected document; lines and
+    /// VAT breakdown follow the header through their DocumentNo relation.
+    /// </summary>
+    public void init()
+    {
+        CLREInvoiceARHeader callerRec;
+
+        super();
+
+        if (element.args() && element.args().record() && element.args().dataset() == tableNum(CLREInvoiceARHeader))
+        {
+            callerRec = element.args().record() as CLREInvoiceARHeader;
+            CLREInvoiceARHeader_ds.query().dataSourceTable(tableNum(CLREInvoiceARHeader)).addRange(fieldNum(CLREInvoiceARHeader, RecId)).value(queryValue(callerRec.RecId));
+        }
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CLREInvoiceARHeader</Name>
+			<Table>CLREInvoiceARHeader</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+		<AxFormDataSource xmlns="">
+			<Name>CLREInvoiceARLine</Name>
+			<Table>CLREInvoiceARLine</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<JoinSource>CLREInvoiceARHeader</JoinSource>
+			<LinkType>Delayed</LinkType>
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+		<AxFormDataSource xmlns="">
+			<Name>CLREInvoiceARVATBrkdn</Name>
+			<Table>CLREInvoiceARVATBrkdn</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<JoinSource>CLREInvoiceARHeader</JoinSource>
+			<LinkType>Delayed</LinkType>
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:EInvoice</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormTabControl">
+				<Name>MainTab</Name>
+				<Type>Tab</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>HeaderSection</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>DocNumberGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_DocumentNo</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>DocumentNo</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_BuyerName</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>BuyerName</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_BuyerReference</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>BuyerReference</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_UniqueId</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>UniqueId</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_PeppolStatus</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>PeppolStatus</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:DocumentNumber</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>DatesGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormDateControl">
+										<Name>Header_IssueDate</Name>
+										<Type>Date</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>IssueDate</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormDateControl">
+										<Name>Header_DueDate</Name>
+										<Type>Date</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>DueDate</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormDateControl">
+										<Name>Header_TaxPointDate</Name>
+										<Type>Date</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxPointDate</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormDateControl">
+										<Name>Header_ActualDeliveryDate</Name>
+										<Type>Date</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>ActualDeliveryDate</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:Dates</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>SupplierGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_SellerName</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>SellerName</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_SellerVATRegistrationNo</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>SellerVATRegistrationNo</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_SellerEndpointID</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>SellerEndpointID</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_SellerCountryRegionCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>SellerCountryRegionCode</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:SupplierDetails</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>InvoiceTypeGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_InvoiceTypeCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>InvoiceTypeCode</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_InvoiceNote</Name>
+										<Label>@CELTLabels:InvoiceNote</Label>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>InvoiceNote</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:InvoiceType</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>TotalsGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Header_CurrencyCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>CurrencyCode</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Header_PayableAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>PayableAmount</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Header_TaxExclusiveAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxExclusiveAmount</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Header_TaxInclusiveAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxInclusiveAmount</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Header_AllowanceTotalAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>AllowanceTotalAmount</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Header_ChargeTotalAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>ChargeTotalAmount</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Header_PrepaidAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>PrepaidAmount</DataField>
+										<DataSource>CLREInvoiceARHeader</DataSource>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:Totals</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+						</Controls>
+						<Columns>3</Columns>
+						<ColumnsMode>Fixed</ColumnsMode>
+						<Caption>@CELTLabels:Header</Caption>
+						<FastTabExpanded>Yes</FastTabExpanded>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>LinesSection</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGridControl">
+								<Name>LinesGrid</Name>
+								<Type>Grid</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormIntegerControl">
+										<Name>Lines_LineNo</Name>
+										<Type>Integer</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>LineNo</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Lines_ItemName</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>ItemName</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Lines_ItemDescription</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>ItemDescription</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Lines_EInvoiceLineID</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>EInvoiceLineID</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Lines_Quantity</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>Quantity</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Lines_UnitCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>UnitCode</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Lines_PriceAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>PriceAmount</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Lines_LineExtensionAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>LineExtensionAmount</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>Lines_TaxCategoryCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxCategoryCode</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>Lines_TaxPercent</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxPercent</DataField>
+										<DataSource>CLREInvoiceARLine</DataSource>
+									</AxFormControl>
+								</Controls>
+								<DataSource>CLREInvoiceARLine</DataSource>
+								<Style>Tabular</Style>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:Lines</Caption>
+						<FastTabExpanded>Yes</FastTabExpanded>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>VATSection</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGridControl">
+								<Name>VATGrid</Name>
+								<Type>Grid</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormIntegerControl">
+										<Name>VAT_LineNo</Name>
+										<Type>Integer</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>LineNo</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>VAT_TaxableAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxableAmount</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>VAT_TaxAmount</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxAmount</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>VAT_TaxCategoryCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxCategoryCode</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormRealControl">
+										<Name>VAT_TaxPercent</Name>
+										<Type>Real</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxPercent</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>VAT_ExemptionReasonCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>ExemptionReasonCode</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>VAT_ExemptionReason</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>ExemptionReason</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>VAT_TaxSchemeID</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>TaxSchemeID</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormStringControl">
+										<Name>VAT_CurrencyCode</Name>
+										<Type>String</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataField>CurrencyCode</DataField>
+										<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+									</AxFormControl>
+								</Controls>
+								<DataSource>CLREInvoiceARVATBrkdn</DataSource>
+								<Style>Tabular</Style>
+							</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:VATBreakdown</Caption>
+						<FastTabExpanded>Yes</FastTabExpanded>
+					</AxFormControl>
+				</Controls>
+				<Style>FastTabs</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

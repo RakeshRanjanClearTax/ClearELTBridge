@@ -1,0 +1,772 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTProjInvoices</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTProjInvoices extends FormRun
+{
+    // Per-row cache for the newest writeback of the row being rendered: the status columns are
+    // display methods that all read the same row, so the first one pays the select and the rest
+    // reuse it. Keyed on the journal RecId.
+    ClearTaxEInvoiceResponseTable wbCache;
+    RecId                         wbCacheJourRecId;
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// All posted project invoices, newest first, with the Clear e-invoice status columns.
+    /// </summary>
+    public void init()
+    {
+        super();
+
+        ProjInvoiceJour_ds.query().dataSourceTable(tableNum(ProjInvoiceJour)).addSortField(fieldNum(ProjInvoiceJour, InvoiceDate), SortOrder::Descending);
+
+        this.applyCountryVisibility();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>applyCountryVisibility</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Checkbox-driven visibility (Company capabilities setup): the Lifecycle actions box shows
+    /// the lifecycle buttons, payment history (button and per-row View column) and action log;
+    /// the Self-billing box shows the Generate e-invoice button. The response log and the PDF
+    /// download always show.
+    /// </summary>
+    private void applyCountryVisibility()
+    {
+        boolean lifecycleOn   = CELTLifecycleActionService::isLifecycleActionsVisible();
+        boolean selfBillingOn = CELTLifecycleActionService::isSelfBillingVisible();
+
+        element.design().controlName(formControlStr(CELTProjInvoices, BtnGenerateEInvoice)).visible(selfBillingOn);
+        element.design().controlName(formControlStr(CELTProjInvoices, BtnLifecycleMenu)).visible(lifecycleOn);
+        element.design().controlName(formControlStr(CELTProjInvoices, BtnPaymentHistory)).visible(lifecycleOn);
+        element.design().controlName(formControlStr(CELTProjInvoices, Grid_PaymentHistory)).visible(lifecycleOn);
+        element.design().controlName(formControlStr(CELTProjInvoices, BtnActionLog)).visible(lifecycleOn);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>findWriteback</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The newest Clear writeback row for the project invoice, cached per journal row so the
+    /// grid's status columns cost one select per rendered row instead of one per column.
+    /// </summary>
+    /// <param name = "_projJour">the journal row being rendered</param>
+    /// <returns>newest writeback row; an empty buffer when none has landed</returns>
+    public ClearTaxEInvoiceResponseTable findWriteback(ProjInvoiceJour _projJour)
+    {
+        if (wbCacheJourRecId != _projJour.RecId)
+        {
+            wbCache.clear();
+
+            if (_projJour.ProjInvoiceId != '')
+            {
+                // Match current rows (InvoiceId) and legacy-shaped rows (invoice number in
+                // DocumentId), like the response log's filter. Newest by creation time - RecId
+                // order is not chronological across AOS sessions (per-AOS id blocks).
+                select firstonly wbCache
+                    order by CreatedDateTime desc, RecId desc
+                    where wbCache.InvoiceId == _projJour.ProjInvoiceId
+                       || wbCache.DocumentId == _projJour.ProjInvoiceId;
+            }
+
+            wbCacheJourRecId = _projJour.RecId;
+        }
+
+        return wbCache;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>invalidateWritebackCache</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Forgets the cached writeback row so the next render re-reads it from the table.
+    /// </summary>
+    public void invalidateWritebackCache()
+    {
+        wbCacheJourRecId = 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>research</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Re-reads the grid after an action - the sync helper and the lifecycle service refresh
+    /// their caller through this method. The writeback cache must be dropped first, or the
+    /// re-render of the current row would show the pre-action values.
+    /// </summary>
+    /// <param name = "_retainPosition">keep the cursor on the current row</param>
+    public void research(boolean _retainPosition = true)
+    {
+        this.invalidateWritebackCache();
+        ProjInvoiceJour_ds.research(_retainPosition);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="">
+			<DataSource>
+				<Name>ProjInvoiceJour</Name>
+				<Methods>
+					<Method>
+						<Name>executeQuery</Name>
+						<Source><![CDATA[
+        public void executeQuery()
+        {
+            element.invalidateWritebackCache();
+            super();
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>research</Name>
+						<Source><![CDATA[
+        public void research(boolean _retainPosition = false)
+        {
+            element.invalidateWritebackCache();
+            super(_retainPosition);
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentId</Name>
+						<Source><![CDATA[
+        /// <summary>Clear document id - from the newest writeback, else the journal's stamped id.</summary>
+        display str documentId(ProjInvoiceJour _projJour)
+        {
+            // Only a submitted e-invoice shows a document id; failed attempts keep theirs in the
+            // E-Invoice response log.
+            if (_projJour.CELTEInvoiceStatus != CELTEInvoiceStatus::Submitted)
+            {
+                return '';
+            }
+
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_projJour);
+            return wb.DocumentId != '' ? wb.DocumentId : _projJour.CELTDocumentId;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>errorDetails</Name>
+						<Source><![CDATA[
+        display str errorDetails(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).ErrorDetails;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>warningDetails</Name>
+						<Source><![CDATA[
+        display str warningDetails(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).WarningDetails;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>actionTaken</Name>
+						<Source><![CDATA[
+        /// <summary>The last lifecycle action sent for the document (blank when none yet).</summary>
+        display str actionTaken(ProjInvoiceJour _projJour)
+        {
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_projJour);
+            return wb.LastAction == CELTLifecycleAction::None ? '' : enum2Str(wb.LastAction);
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatus</Name>
+						<Source><![CDATA[
+        display str documentStatus(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PAExchangeStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatusReasonCode</Name>
+						<Source><![CDATA[
+        display str documentStatusReasonCode(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PAExchangeReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatusReasonMsg</Name>
+						<Source><![CDATA[
+        display str documentStatusReasonMsg(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PAExchangeReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfSubmissionStatus</Name>
+						<Source><![CDATA[
+        display str ppfSubmissionStatus(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFSubmissionStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfSubmissionReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfSubmissionReasonCode(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFSubmissionReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfSubmissionReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfSubmissionReasonMsg(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFSubmissionReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcSubmittedStatus</Name>
+						<Source><![CDATA[
+        display str ppfLcSubmittedStatus(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFLCSubmittedStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcSubmittedReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfLcSubmittedReasonCode(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFLCSubmittedReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcSubmittedReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfLcSubmittedReasonMsg(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFLCSubmittedReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcPmtCollectedStatus</Name>
+						<Source><![CDATA[
+        display str ppfLcPmtCollectedStatus(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFLCPmtCollectedStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcPmtCollectedReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfLcPmtCollectedReasonCode(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFLCPmtCollectedReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcPmtCollectedReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfLcPmtCollectedReasonMsg(ProjInvoiceJour _projJour)
+        {
+            return element.findWriteback(_projJour).PPFLCPmtCollectedReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+				<Fields />
+			</DataSource>
+		</DataSources>
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>ProjInvoiceJour</Name>
+			<Table>ProjInvoiceJour</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:AllProjectInvoices</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormActionPaneControl">
+				<Name>ActionPane</Name>
+				<Type>ActionPane</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormActionPaneTabControl">
+						<Name>EInvoiceTab</Name>
+						<Type>ActionPaneTab</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormButtonGroupControl">
+						<Name>EInvoiceGroup</Name>
+						<Type>ButtonGroup</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnGenerateEInvoice</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>ProjInvoiceJour</DataSource>
+								<ImageLocation>Symbol</ImageLocation>
+								<MenuItemName>CELTIntegrationSync</MenuItemName>
+								<MenuItemType>Action</MenuItemType>
+								<NormalImage>Upload</NormalImage>
+								<Text>@CELTLabels:ExtractAndUpload</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnResponseLog</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>ProjInvoiceJour</DataSource>
+								<ImageLocation>Symbol</ImageLocation>
+								<MenuItemName>CELTEInvoiceResponseLog</MenuItemName>
+								<MenuItemType>Display</MenuItemType>
+								<NormalImage>History</NormalImage>
+								<Text>@CELTLabels:EInvoiceResponseLog</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnApiLog</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>ProjInvoiceJour</DataSource>
+								<ImageLocation>Symbol</ImageLocation>
+								<MenuItemName>CELTLog</MenuItemName>
+								<MenuItemType>Display</MenuItemType>
+								<NormalImage>Search</NormalImage>
+								<Text>\@CELTLabels:ApiRequestLog</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnGetDocumentPdf</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>ProjInvoiceJour</DataSource>
+								<ImageLocation>Symbol</ImageLocation>
+								<MenuItemName>CELTGetDocumentPdf</MenuItemName>
+								<MenuItemType>Action</MenuItemType>
+							<NormalImage>Download</NormalImage>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuButtonControl">
+								<Name>BtnLifecycleMenu</Name>
+								<Type>MenuButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnLcComplete</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>ProjInvoiceJour</DataSource>
+										<MenuItemName>CELTLcComplete</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>BtnLcConfirmPayment</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<DataSource>ProjInvoiceJour</DataSource>
+										<MenuItemName>CELTLcConfirmPayment</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+									</AxFormControl>
+								</Controls>
+								<Text>@CELTLabels:LifecycleActions</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnPaymentHistory</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>ProjInvoiceJour</DataSource>
+								<MenuItemName>CELTPaymentHistory</MenuItemName>
+								<MenuItemType>Display</MenuItemType>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>BtnActionLog</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<DataSource>ProjInvoiceJour</DataSource>
+								<MenuItemName>CELTLifecycleActionLog</MenuItemName>
+								<MenuItemType>Display</MenuItemType>
+							</AxFormControl>
+						</Controls>
+					</AxFormControl>
+						</Controls>
+						<Caption>@CELTLabels:EInvoice</Caption>
+					</AxFormControl>
+				</Controls>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>FilterGroup</Name>
+				<Pattern>CustomAndQuickFilters</Pattern>
+				<PatternVersion>1.1</PatternVersion>
+				<Type>Group</Type>
+				<WidthMode>SizeToAvailable</WidthMode>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl>
+						<Name>Quickfilter</Name>
+						<FormControlExtension>
+							<Name>QuickFilterControl</Name>
+							<ExtensionComponents />
+							<ExtensionProperties>
+								<AxFormControlExtensionProperty>
+									<Name>targetControlName</Name>
+									<Type>String</Type>
+									<Value>Grid</Value>
+								</AxFormControlExtensionProperty>
+								<AxFormControlExtensionProperty>
+									<Name>defaultColumnName</Name>
+									<Type>String</Type>
+									<Value>Grid_ProjInvoiceId</Value>
+								</AxFormControlExtensionProperty>
+							</ExtensionProperties>
+						</FormControlExtension>
+					</AxFormControl>
+				</Controls>
+				<ArrangeMethod>HorizontalLeft</ArrangeMethod>
+				<FrameType>None</FrameType>
+				<Style>CustomFilter</Style>
+				<ViewEditMode>Edit</ViewEditMode>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ProjInvoiceId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>ProjInvoiceId</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_InvoiceDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceDate</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_DueDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DueDate</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoiceAccount</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceAccount</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DeliveryName</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DeliveryName</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_InvoiceAmount</Name>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceAmount</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_CurrencyId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CurrencyId</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Grid_EInvoiceStatus</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CELTEInvoiceStatus</DataField>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Items />
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentId</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentId</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ErrorDetails</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>errorDetails</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:ErrorDetails</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Warnings</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>warningDetails</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:Warnings</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ActionTaken</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>actionTaken</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:ActionTaken</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormMenuFunctionButtonControl">
+						<Name>Grid_PaymentHistory</Name>
+						<Type>MenuFunctionButton</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataSource>ProjInvoiceJour</DataSource>
+						<MenuItemName>CELTPaymentHistory</MenuItemName>
+						<MenuItemType>Display</MenuItemType>
+						<Text>@CELTLabels:ViewLink</Text>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatus</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatusReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatusReasonCode</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentStatusReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatusReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatusReasonMsg</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:DocumentStatusReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFSubmissionStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionStatus</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFSubmissionStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFSubmissionReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionReasonCode</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFSubmissionReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFSubmissionReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfSubmissionReasonMsg</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFSubmissionReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcSubmittedStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcSubmittedStatus</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcSubmittedStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcSubmittedReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcSubmittedReasonCode</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcSubmittedReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcSubmittedReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcSubmittedReasonMsg</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcSubmittedReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcPmtCollectedStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcPmtCollectedStatus</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcPmtCollectedStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcPmtCollectedReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcPmtCollectedReasonCode</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcPmtCollectedReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcPmtCollectedReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcPmtCollectedReasonMsg</DataMethod>
+						<DataSource>ProjInvoiceJour</DataSource>
+						<Label>@CELTLabels:PPFLcPmtCollectedReasonMsg</Label>
+					</AxFormControl>
+				</Controls>
+				<DataSource>ProjInvoiceJour</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

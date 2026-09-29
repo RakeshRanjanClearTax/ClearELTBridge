@@ -1,0 +1,360 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTEInvoiceResponseLog</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTEInvoiceResponseLog extends FormRun
+{
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// When opened from an invoice journal with a selected record, shows only that invoice's
+    /// writeback rows - matched on InvoiceId, or DocumentId for legacy-shaped rows. Opened
+    /// standalone, shows all, newest first.
+    /// </summary>
+    public void init()
+    {
+        CustInvoiceJour custJour;
+        ProjInvoiceJour projJour;
+        VendInvoiceJour vendJour;
+        str             docId;
+
+        super();
+
+        if (element.args() && element.args().record())
+        {
+            switch (element.args().dataset())
+            {
+                case tableNum(CustInvoiceJour):
+                    custJour = element.args().record() as CustInvoiceJour;
+                    docId    = custJour.InvoiceId;
+                    break;
+
+                case tableNum(ProjInvoiceJour):
+                    projJour = element.args().record() as ProjInvoiceJour;
+                    docId    = projJour.ProjInvoiceId;
+                    break;
+
+                case tableNum(VendInvoiceJour):
+                    vendJour = element.args().record() as VendInvoiceJour;
+                    docId    = vendJour.InvoiceId;
+                    break;
+            }
+        }
+
+        if (docId != '')
+        {
+            // Match current rows (InvoiceId) and legacy-shaped rows (invoice number in DocumentId).
+            ClearTaxEInvoiceResponseTable_ds.query().dataSourceTable(tableNum(ClearTaxEInvoiceResponseTable)).addRange(fieldNum(ClearTaxEInvoiceResponseTable, RecId)).value(
+                strFmt('((%1.InvoiceId == "%2") || (%1.DocumentId == "%2"))',
+                    tableStr(ClearTaxEInvoiceResponseTable),
+                    strReplace(docId, '"', '')));
+        }
+
+        ClearTaxEInvoiceResponseTable_ds.query().dataSourceTable(tableNum(ClearTaxEInvoiceResponseTable)).addSortField(fieldNum(ClearTaxEInvoiceResponseTable, CreatedDateTime), SortOrder::Descending);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>ClearTaxEInvoiceResponseTable</Name>
+			<Table>ClearTaxEInvoiceResponseTable</Table>
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<Fields>
+				<AxFormDataSourceField>
+					<DataField>InvoiceId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>InvoiceType</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>Success</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>STATUS</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>ErrorDetails</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>WarningDetails</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>DocumentId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>ERROR</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>UniqueId</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>UUID</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>SubmissionUUID</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CreatedDate</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CreatedTime</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>IssuerName</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>ReceiverName</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>IdempotencyKey</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>StatusCheck</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>ZSIGNED_QR_CODE</DataField>
+				</AxFormDataSourceField>
+				<AxFormDataSourceField>
+					<DataField>CreatedDateTime</DataField>
+				</AxFormDataSourceField>
+			</Fields>
+			<ReferencedDataSources />
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:EInvoiceResponseLog</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>FilterGroup</Name>
+				<Pattern>CustomAndQuickFilters</Pattern>
+				<PatternVersion>1.1</PatternVersion>
+				<Type>Group</Type>
+				<WidthMode>SizeToAvailable</WidthMode>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl>
+						<Name>Quickfilter</Name>
+						<FormControlExtension>
+							<Name>QuickFilterControl</Name>
+							<ExtensionComponents />
+							<ExtensionProperties>
+								<AxFormControlExtensionProperty>
+									<Name>targetControlName</Name>
+									<Type>String</Type>
+									<Value>Grid</Value>
+								</AxFormControlExtensionProperty>
+								<AxFormControlExtensionProperty>
+									<Name>defaultColumnName</Name>
+									<Type>String</Type>
+									<Value>Grid_InvoiceId</Value>
+								</AxFormControlExtensionProperty>
+							</ExtensionProperties>
+						</FormControlExtension>
+					</AxFormControl>
+				</Controls>
+				<ArrangeMethod>HorizontalLeft</ArrangeMethod>
+				<FrameType>None</FrameType>
+				<Style>CustomFilter</Style>
+				<ViewEditMode>Edit</ViewEditMode>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoiceId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceId</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_InvoiceType</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>InvoiceType</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Success</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>Success</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Status</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>STATUS</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ErrorDetails</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>ErrorDetails</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_WarningDetails</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>WarningDetails</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DocumentId</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Error</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>ERROR</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_UniqueId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>UniqueId</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_UUID</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>UUID</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_SubmissionUUID</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>SubmissionUUID</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_CreatedDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CreatedDate</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTimeControl">
+						<Name>Grid_CreatedTime</Name>
+						<Type>Time</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CreatedTime</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_IssuerName</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>IssuerName</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ReceiverName</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>ReceiverName</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_IdempotencyKey</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>IdempotencyKey</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_StatusCheck</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>StatusCheck</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_QRCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>ZSIGNED_QR_CODE</DataField>
+						<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+					</AxFormControl>
+				</Controls>
+				<DataSource>ClearTaxEInvoiceResponseTable</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

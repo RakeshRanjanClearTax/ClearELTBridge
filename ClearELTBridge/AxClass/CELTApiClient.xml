@@ -1,0 +1,499 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTApiClient</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// HTTP client for the Clear backend. Merges the original ELTAPIHandler (WebRequest transport,
+/// request/response logging). The x-clear-auth-token header comes directly from the token
+/// maintained in Clear ELT parameters - there is no OAuth fetch/refresh.
+/// Request and response streams are round-tripped through the D365 temp store as containers,
+/// because .NET streams cannot be re-read after the first pass.
+/// Byte-compatible with CELTISV: the HTTP verb is enum2Str(methodType), success is "OK"/"200",
+/// and header names are exact.
+/// </summary>
+internal final class CELTApiClient
+{
+    private System.Net.WebHeaderCollection  headers;
+    private CELTAPIRequestType              apiRequestType;
+    private CELTAPIMethodType               apiMethodType;
+    private container                       responseContainer, requestContainer;
+    private CELTLogger                      logger;
+    private str                             statusCode, contentType, url;
+    private int                             contentLength;
+    private boolean                         skipAuthToken;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Creates a client with the supplied logger.
+    /// </summary>
+    /// <param name = "_logger">consolidated logger</param>
+    public void new(CELTLogger _logger = new CELTLogger())
+    {
+        logger = _logger;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initialize</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Resets headers and records the request type for this call.
+    /// </summary>
+    /// <param name = "_apiRequestType">request type</param>
+    public void initialize(CELTAPIRequestType _apiRequestType)
+    {
+        headers         = new System.Net.WebHeaderCollection();
+        apiRequestType  = _apiRequestType;
+        skipAuthToken   = false;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setMethod</Name>
+				<Source><![CDATA[
+    public void setMethod(CELTAPIMethodType _method)
+    {
+        apiMethodType = _method;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setURL</Name>
+				<Source><![CDATA[
+    public void setURL(str _url)
+    {
+        url = _url;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addQueryParams</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Appends <c>separator + key = value</c> to the URL (SysQuery-style pre-sign params).
+    /// </summary>
+    public void addQueryParams(str _key, str _value, str _separator = '')
+    {
+        url += _separator + _key + CELTConstants::equalTo + _value;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>addHeader</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Adds a header only if not already present.
+    /// </summary>
+    public void addHeader(str _headerType, str _header)
+    {
+        if (headers.Get(_headerType) == '')
+        {
+            headers.Add(_headerType, _header);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setRequestBody</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sets the request body from a text payload (stored as a temp-store container).
+    /// </summary>
+    public void setRequestBody(str _payload)
+    {
+        requestContainer = File::SendFileToTempStore_GetResult(
+            CELTApiClient::getStreamFromText(_payload), CELTConstants::RequestData).pack();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setRequestStream</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sets the request body from a stream (used for the S3 zip upload).
+    /// </summary>
+    public void setRequestStream(System.IO.Stream _payload)
+    {
+        requestContainer = File::SendFileToTempStore_GetResult(
+            _payload, CELTConstants::RequestData).pack();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setContentType</Name>
+				<Source><![CDATA[
+    public void setContentType(str _contentType)
+    {
+        contentType = _contentType;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setContentLength</Name>
+				<Source><![CDATA[
+    public void setContentLength(int _contentLength)
+    {
+        contentLength = _contentLength;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>sendRequest</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Executes the configured request. Injects the auth token (except when this call IS the
+    /// auth request), streams the body, captures the response into a container, records status,
+    /// and always writes an API log row.
+    /// </summary>
+    public void sendRequest()
+    {
+        System.Exception                    ex;
+        System.Net.HttpWebRequest           request;
+        System.Net.HttpWebResponse          response = new System.Net.HttpWebResponse();
+        FileUploadTemporaryStorageResult    tempStore = new FileUploadTemporaryStorageResult();
+
+        // One client instance serves several calls (get status, then the result download, then the
+        // acknowledgement): start every call clean, or a failed call would report the previous
+        // call's status and body.
+        statusCode        = '';
+        responseContainer = conNull();
+
+        try
+        {
+            logger.logInfoMessage(
+                classStr(CELTApiClient) + '/' + methodStr(CELTApiClient, sendRequest),
+                strFmt('Sending %1 request', enum2Str(apiRequestType)));
+
+            new InteropPermission(InteropKind::ClrInterop).assert();
+
+            this.ensureAuthToken();
+
+            CLRObject clrObj = System.Net.WebRequest::Create(url);
+            request = clrObj;
+            request.Method  = enum2Str(apiMethodType);
+            request.Headers = headers;
+
+            if (contentType)
+            {
+                request.ContentType = contentType;
+            }
+            if (contentLength)
+            {
+                request.ContentLength = contentLength;
+            }
+            if (conLen(requestContainer) != 0)
+            {
+                using (System.IO.Stream requestStream = request.GetRequestStream())
+                {
+                    tempStore.unpack(requestContainer);
+                    tempStore.openResult().CopyTo(requestStream);
+                }
+            }
+
+            response = request.GetResponse();
+            responseContainer = File::SendFileToTempStore_GetResult(
+                response.GetResponseStream(), CELTConstants::ResponseData).pack();
+
+            statusCode = any2Str(response.StatusCode);
+
+            logger.logInfoMessage(
+                classStr(CELTApiClient) + '/' + methodStr(CELTApiClient, sendRequest),
+                strFmt('%1 completed with %2', enum2Str(apiRequestType), statusCode));
+        }
+        catch (ex)
+        {
+            System.Exception            exEr;
+            System.Net.WebException     webException;
+            CLRObject                   webResponse;
+            System.Net.HttpWebResponse  httpResponse;
+            System.IO.Stream            errorStream;
+            str                         responseEx;
+            str                         exMsg;
+
+            exEr = ClrInterop::getLastException();
+
+            if (exEr != null)
+            {
+                exMsg = exEr.get_Message();
+                exEr  = exEr.get_InnerException();
+                if (exEr != null)
+                {
+                    // The outer object is the TargetInvocationException wrapper; the cause is inside.
+                    exMsg = exEr.get_Message();
+                }
+                if ((exEr != null) && (exEr is System.Net.WebException))
+                {
+                    webException = exEr as System.Net.WebException;
+                    webResponse  = webException.get_Response();
+                    if (webResponse)
+                    {
+                        httpResponse = webResponse as System.Net.HttpWebResponse;
+                        if (httpResponse)
+                        {
+                            errorStream = httpResponse.GetResponseStream();
+                            statusCode  = any2Str(httpResponse.StatusCode);
+
+                            // Read the body ONCE. Storing the stream first drained it, so the
+                            // logged message was always empty and the failure reason was lost.
+                            System.IO.StreamReader sreads = new System.IO.StreamReader(errorStream);
+                            responseEx = sreads.ReadToEnd();
+                            responseContainer = File::SendFileToTempStore_GetResult(
+                                new System.IO.MemoryStream(System.Text.Encoding::get_UTF8().GetBytes(responseEx)), CELTConstants::ResponseData).pack();
+                        }
+                    }
+                }
+            }
+
+            if (responseEx == '')
+            {
+                responseEx = exMsg;
+            }
+
+            logger.logErrorMessage(
+                classStr(CELTApiClient) + '/' + methodStr(CELTApiClient, sendRequest),
+                strFmt('%1 failed with HTTP %2: %3', enum2Str(apiRequestType),
+                    statusCode != '' ? statusCode : 'no response', subStr(responseEx, 1, 900)),
+                responseEx);
+        }
+        finally
+        {
+            this.createMessageLogs();
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureAuthToken</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Injects the <c>x-clear-auth-token</c> header on every request, straight from the
+    /// Authentication token maintained in Clear ELT parameters. addHeader is first-write-wins,
+    /// so an explicitly added token is never overridden.
+    /// </summary>
+    private void ensureAuthToken()
+    {
+        str authTokenValue;
+
+        if (skipAuthToken)
+        {
+            return;
+        }
+
+        authTokenValue = CELTParameters::getAuthToken();
+
+        if (authTokenValue != '')
+        {
+            this.addHeader(CELTConstants::x_clear_auth_token, authTokenValue);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getResponseStream</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Reopens the captured response as a fresh stream.
+    /// </summary>
+    /// <returns>response stream</returns>
+    public System.IO.Stream getResponseStream()
+    {
+        FileUploadTemporaryStorageResult tempStore = new FileUploadTemporaryStorageResult();
+        tempStore.unpack(responseContainer);
+        return tempStore.openResult();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getResponseBody</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Reads the captured response as text.
+    /// </summary>
+    /// <returns>response body</returns>
+    public str getResponseBody()
+    {
+        if (conLen(responseContainer) == 0)
+        {
+            return '';
+        }
+
+        return CELTApiClient::getTextFromStream(this.getResponseStream());
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getResponseStatus</Name>
+				<Source><![CDATA[
+    public str getResponseStatus()
+    {
+        return statusCode;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>isSuccess</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// True when the last response reported OK/200 (any2Str yields the enum name "OK").
+    /// </summary>
+    /// <returns>true on success</returns>
+    public boolean isSuccess()
+    {
+        return statusCode == CELTConstants::OK || statusCode == CELTConstants::status200;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>createMessageLogs</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Persists the request/response of this call to the consolidated log table. A request that
+    /// carried no body (GET) is logged as its method, URL and headers, so the log's Request data
+    /// download always has something to show.
+    /// </summary>
+    private void createMessageLogs()
+    {
+        logger.logApiMessage(
+            apiRequestType,
+            apiMethodType,
+            url,
+            statusCode,
+            conLen(requestContainer) != 0 ? requestContainer : this.describeBodylessRequest(),
+            responseContainer);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>describeBodylessRequest</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The loggable form of a request without a body: the HTTP method, the full URL including
+    /// query string, and every header as actually sent - with token-bearing headers masked to
+    /// their first four characters. Previously such requests stored an empty container and the
+    /// log form's download returned nothing at all.
+    /// </summary>
+    /// <returns>packed temp-store container holding the request description</returns>
+    private container describeBodylessRequest()
+    {
+        str text = strFmt('%1 %2\n', enum2Str(apiMethodType), url);
+        str headerName, headerValue;
+        int i;
+
+        if (headers != null)
+        {
+            for (i = 0; i < headers.get_Count(); i++)
+            {
+                headerName  = headers.GetKey(i);
+                headerValue = headers.Get(i);
+
+                if (strScan(strLwr(headerName), 'token', 1, strLen(headerName)) > 0
+                    || strLwr(headerName) == 'authorization')
+                {
+                    headerValue = subStr(headerValue, 1, 4) + '****';
+                }
+
+                text += strFmt('%1: %2\n', headerName, headerValue);
+            }
+        }
+
+        if (contentType)
+        {
+            text += strFmt('Content-Type: %1\n', contentType);
+        }
+
+        return File::SendFileToTempStore_GetResult(
+            CELTApiClient::getStreamFromText(text), CELTConstants::RequestData).pack();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>suppressAuthToken</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Skips auth-token injection for this request (pre-signed download URLs must be called bare).
+    /// Reset by initialize().
+    /// </summary>
+    public void suppressAuthToken()
+    {
+        skipAuthToken = true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setTelemetryLogger</Name>
+				<Source><![CDATA[
+    public void setTelemetryLogger(CELTLogger _logger)
+    {
+        logger = _logger;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getStreamFromText</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Converts a text payload into a rewound stream.
+    /// </summary>
+    public static System.IO.Stream getStreamFromText(str _input)
+    {
+        TextStreamIo io = TextStreamIo::constructForWrite();
+        io.writeRaw(_input);
+
+        System.IO.Stream stream = io.getStream();
+        stream.Position = 0;
+        return stream;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getTextFromStream</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Reads a stream to end as text.
+    /// </summary>
+    public static str getTextFromStream(System.IO.Stream _input)
+    {
+        str output;
+
+        if (_input != null)
+        {
+            using (System.IO.StreamReader streamReader = new System.IO.StreamReader(_input))
+            {
+                output = streamReader.ReadToEnd();
+            }
+        }
+
+        return output;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

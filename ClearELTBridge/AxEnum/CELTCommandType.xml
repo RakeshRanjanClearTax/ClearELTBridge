@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxEnum xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCommandType</Name>
+	<Label>@CELTLabels:CommandType</Label>
+	<UseEnumValue>No</UseEnumValue>
+	<EnumValues>
+		<AxEnumValue>
+			<Name>None</Name>
+			<Label>@CELTLabels:None</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>DATA_EXTRACTION</Name>
+			<Label>@CELTLabels:DataExtraction</Label>
+			<Value>1</Value>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>DATA_POSTING</Name>
+			<Label>@CELTLabels:DataPosting</Label>
+			<Value>2</Value>
+		</AxEnumValue>
+	</EnumValues>
+	<IsExtensible>true</IsExtensible>
+</AxEnum>

@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTLogger</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Consolidated logger. Writes info/warning/error telemetry rows and API request/response
+/// rows into the single <c>CELTLog</c> table. The command id is stamped on every line via a
+/// static that the orchestration loop sets per command; the document (invoice) number is
+/// stamped the same way by whatever scope works on one specific document.
+/// </summary>
+internal class CELTLogger
+{
+    private static str commandID;
+    private static str documentID;
+}
+
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>commandId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Gets or sets the command id stamped onto every subsequent log line.
+    /// </summary>
+    /// <param name = "_commandId">command id to stamp</param>
+    /// <returns>the current command id</returns>
+    public static str commandId(str _commandId = commandID)
+    {
+        commandID = _commandId;
+        return commandID;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>documentId</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Gets or sets the business document (invoice) number stamped onto every subsequent log
+    /// line, so the log can be opened per invoice from the invoice lists. Set it when work for
+    /// one specific document starts; reset it (blank) when that scope ends.
+    /// </summary>
+    /// <param name = "_documentId">invoice number to stamp</param>
+    /// <returns>the current document number</returns>
+    public static str documentId(str _documentId = documentID)
+    {
+        documentID = _documentId;
+        return documentID;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logInfoMessage</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Writes an information log row.
+    /// </summary>
+    public void logInfoMessage(str _programName, str _info, str _additionalDetails = '')
+    {
+        this.writeTelemetry(CELTLogType::Info, _programName, _info, _additionalDetails);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logWarningMessage</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Writes a warning log row.
+    /// </summary>
+    public void logWarningMessage(str _programName, str _warning, str _additionalDetails = '')
+    {
+        this.writeTelemetry(CELTLogType::Warning, _programName, _warning, _additionalDetails);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logErrorMessage</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Writes an error log row.
+    /// </summary>
+    public void logErrorMessage(str _programName, str _error, str _additionalDetails = '')
+    {
+        this.writeTelemetry(CELTLogType::Error, _programName, _error, _additionalDetails);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>writeTelemetry</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Inserts a telemetry-style log row (no API payload).
+    /// </summary>
+    private void writeTelemetry(CELTLogType _logType, str _programName, str _message, str _additionalDetails)
+    {
+        CELTLog log;
+
+        ttsbegin;
+        log.LogType             = _logType;
+        log.CommandID           = commandID;
+        log.InvoiceId           = documentID;
+        log.ProgramName         = _programName;
+        log.Message             = _message;
+        log.AdditionalDetails   = _additionalDetails;
+        log.insert();
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>logApiMessage</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Inserts an API request/response log row, mirroring the original ELTAPILogs entry.
+    /// </summary>
+    public void logApiMessage(
+        CELTAPIRequestType  _requestType,
+        CELTAPIMethodType   _methodType,
+        str                 _url,
+        str                 _statusCode,
+        container           _requestData,
+        container           _responseData)
+    {
+        CELTLog log;
+
+        ttsbegin;
+        log.LogType         = CELTLogType::Info;
+        log.CommandID       = commandID;
+        log.InvoiceId       = documentID;
+        log.APIRequestType  = _requestType;
+        log.APIMethodType   = _methodType;
+        log.URL             = _url;
+        log.StatusCode      = _statusCode;
+        log.RequestData     = _requestData;
+        log.ResponseData    = _responseData;
+        log.insert();
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>downloadContainer</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Sends a stored request/response payload container to the user as a file download, after
+    /// prompting for the file type and file name ("Set file details" dialog).
+    /// </summary>
+    /// <param name = "_streamData">packed temp-store container</param>
+    /// <param name = "_name">default file name</param>
+    public static void downloadContainer(container _streamData, str _name)
+    {
+        DialogField     fileTypeField;
+        DialogField     fileNameField;
+        CELTFileType    fileType;
+        Dialog          dialog;
+
+        if (conLen(_streamData) == 0)
+        {
+            // Say so instead of doing nothing - a silent no-op reads as a broken button.
+            info(strFmt("@CELTLabels:NoPayloadStored", _name));
+            return;
+        }
+
+        dialog        = new Dialog("@CELTLabels:SetFileDetails");
+        fileTypeField = dialog.addField(enumStr(CELTFileType), "@CELTLabels:FileType");
+        fileNameField = dialog.addField(extendedTypeStr(String20), "@CELTLabels:FileName");
+        fileTypeField.value(CELTFileType::Zip);
+        fileNameField.value(_name);
+
+        if (dialog.run())
+        {
+            fileType = fileTypeField.value();
+
+            FileUploadTemporaryStorageResult tempStore = new FileUploadTemporaryStorageResult();
+            tempStore.unpack(_streamData);
+            File::SendFileToUser(tempStore.openResult(), fileNameField.value() + '.' + enum2Str(fileType));
+        }
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

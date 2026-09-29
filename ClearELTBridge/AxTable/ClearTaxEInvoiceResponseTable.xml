@@ -1,0 +1,783 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>ClearTaxEInvoiceResponseTable</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Landing table for e-invoice (GENERATE_IRN) writeback results. Field schema is compatible with
+/// the original ELTIRN_WRITEBACK (the backend writeback config still names that table; the posting
+/// service maps it here). One row per invoice, upserted on UniqueId. Per-company: the sync flow
+/// lands rows in the company whose journal raised the request, so consumers scope correctly.
+/// </summary>
+public class ClearTaxEInvoiceResponseTable extends common
+{
+}
+]]></Declaration>
+		<Methods />
+	</SourceCode>
+	<Label>@CELTLabels:Writeback</Label>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TitleField1>DocumentId</TitleField1>
+	<TitleField2>STATUS</TitleField2>
+	<CreatedBy>Yes</CreatedBy>
+	<CreatedDateTime>Yes</CreatedDateTime>
+	<Modules>SystemAdministration</Modules>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>FranceShared</Name>
+			<Label>@CELTLabels:FranceShared</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>Flow</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>InvoiceNumber</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>InvoiceDate</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>InvoiceType</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TotalVatAmount</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>InvoiceCurrencyCode</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>SellerSiren</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>ErpDocNumber</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>ErpTransactionId</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>FiscalYear</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CompanyCode</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Siren</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CountryCode</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>EInvoiceIdentifier</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Action</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>EInvoiceType</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>FrancePPF</Name>
+			<Label>@CELTLabels:FrancePPF</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>EventId</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>InvoiceExchangeDate</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>SellerName</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>BuyerName</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>BuyerSiren</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TotalAmountInclVat</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PAExchangeStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PAExchangeReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PAExchangeReasonMsg</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFSubmissionStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFSubmissionReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFSubmissionReasonMsg</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCSubmittedStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCSubmittedReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCSubmittedReasonMsg</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCRejectedStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCRejectedReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCRejectedReasonMsg</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCRefusedStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCRefusedReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCRefusedReasonMsg</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCPmtCollectedStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCPmtCollectedReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PPFLCPmtCollectedReasonMsg</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>FranceEReporting</Name>
+			<Label>@CELTLabels:FranceEReporting</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>Variant</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TxnCategoryTLB</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>ConsolidatedDocumentId</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TotalAmountExclVat</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>VatRate</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TxnReportingPeriod</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TxnReportedToPPFDT</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TxnReportingStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TxnReportingReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>TxnReportingReasonMsg</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PmtReportingPaymentDate</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PmtReportingAmtCollected</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PmtReportingPeriod</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PmtReportedToPPFDT</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PmtReportingStatus</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PmtReportingReasonCodes</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>PmtReportingReasonMsg</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceId</Name>
+			<Label>@CELTLabels:InvoiceId</Label>
+			<StringSize>40</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Success</Name>
+			<Label>@CELTLabels:Success</Label>
+			<StringSize>10</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ErrorDetails</Name>
+			<Label>@CELTLabels:ErrorList</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>WarningDetails</Name>
+			<Label>@CELTLabels:WarningList</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>STATUS</Name>
+			<Label>@CELTLabels:InvoiceStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InternalId</Name>
+			<Label>@CELTLabels:InternalId</Label>
+			<StringSize>50</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ERROR</Name>
+			<Label>@CELTLabels:Error</Label>
+			<StringSize>1000</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>UniqueId</Name>
+			<Label>@CELTLabels:UniqueId</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldInt">
+			<Name>DOC_TYPE</Name>
+					<Label>@CELTLabels:DOC_TYPE</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>B2C</Name>
+					<Label>@CELTLabels:B2C</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>UNIQUE_IDENTIFIER</Name>
+			<Label>@CELTLabels:UNIQUE_IDENTIFIER</Label>
+			<StringSize>500</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>DocumentId</Name>
+			<Label>@CELTLabels:DocumentId</Label>
+			<StringSize>50</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ZSIGNED_QR_CODE</Name>
+			<Label>@CELTLabels:ZSIGNED_QR_CODE</Label>
+			<StringSize>1000</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>UUID</Name>
+			<Label>@CELTLabels:UUID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>CancelDate</Name>
+					<Label>@CELTLabels:CancelDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldDate">
+			<Name>CreatedDate</Name>
+					<Label>@CELTLabels:CreatedDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldTime">
+			<Name>CancelTime</Name>
+					<Label>@CELTLabels:CancelTime</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldTime">
+			<Name>CreatedTime</Name>
+					<Label>@CELTLabels:CreatedTime</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>IdempotencyKey</Name>
+			<Label>@CELTLabels:IdempotencyKey</Label>
+			<StringSize>50</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>StatusCheck</Name>
+			<Label>@CELTLabels:StatusCheck</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldUtcDateTime">
+			<Name>CancelDT</Name>
+					<Label>@CELTLabels:CancelDT</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldUtcDateTime">
+			<Name>CreateDT</Name>
+					<Label>@CELTLabels:CreateDT</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SubmissionUUID</Name>
+			<Label>@CELTLabels:SubmissionUUID</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>IssuerTin</Name>
+			<Label>@CELTLabels:IssuerTin</Label>
+			<StringSize>50</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>IssuerName</Name>
+			<Label>@CELTLabels:IssuerName</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ReceiverName</Name>
+			<Label>@CELTLabels:ReceiverName</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>receiverId</Name>
+			<Label>@CELTLabels:receiverId</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldUtcDateTime">
+			<Name>IssuedDT</Name>
+					<Label>@CELTLabels:IssuedDT</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Flow</Name>
+			<Label>@CELTLabels:Flow</Label>
+			<StringSize>20</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceNumber</Name>
+			<Label>@CELTLabels:InvoiceNumber</Label>
+			<StringSize>40</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceDate</Name>
+					<Label>@CELTLabels:InvoiceDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceType</Name>
+			<Label>@CELTLabels:InvoiceType</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TotalVatAmount</Name>
+			<Label>@CELTLabels:TotalVatAmount</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceCurrencyCode</Name>
+			<Label>@CELTLabels:InvoiceCurrencyCode</Label>
+			<StringSize>3</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerSiren</Name>
+			<Label>@CELTLabels:SellerSiren</Label>
+			<StringSize>14</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ErpDocNumber</Name>
+			<Label>@CELTLabels:ErpDocNumber</Label>
+			<StringSize>40</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ErpTransactionId</Name>
+			<Label>@CELTLabels:ErpTransactionId</Label>
+			<StringSize>40</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>FiscalYear</Name>
+			<Label>@CELTLabels:FiscalYear</Label>
+			<StringSize>4</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CompanyCode</Name>
+			<Label>@CELTLabels:CompanyCode</Label>
+			<StringSize>20</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Siren</Name>
+			<Label>@CELTLabels:Siren</Label>
+			<StringSize>14</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CountryCode</Name>
+			<Label>@CELTLabels:CountryCode</Label>
+			<StringSize>3</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>EInvoiceIdentifier</Name>
+			<Label>@CELTLabels:EInvoiceIdentifier</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Action</Name>
+			<Label>@CELTLabels:Action</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>EInvoiceType</Name>
+			<Label>@CELTLabels:EInvoiceType</Label>
+			<StringSize>40</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>EventId</Name>
+			<Label>@CELTLabels:EventId</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>InvoiceExchangeDate</Name>
+					<Label>@CELTLabels:InvoiceExchangeDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>SellerName</Name>
+			<Label>@CELTLabels:SellerName</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerName</Name>
+			<Label>@CELTLabels:BuyerName</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>BuyerSiren</Name>
+			<Label>@CELTLabels:BuyerSiren</Label>
+			<StringSize>14</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TotalAmountInclVat</Name>
+			<Label>@CELTLabels:TotalAmountInclVat</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PAExchangeStatus</Name>
+			<Label>@CELTLabels:PAExchangeStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PAExchangeReasonCodes</Name>
+			<Label>@CELTLabels:PAExchangeReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PAExchangeReasonMsg</Name>
+			<Label>@CELTLabels:PAExchangeReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFSubmissionStatus</Name>
+			<Label>@CELTLabels:PPFSubmissionStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFSubmissionReasonCodes</Name>
+			<Label>@CELTLabels:PPFSubmissionReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFSubmissionReasonMsg</Name>
+			<Label>@CELTLabels:PPFSubmissionReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCSubmittedStatus</Name>
+			<Label>@CELTLabels:PPFLcSubmittedStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCSubmittedReasonCodes</Name>
+			<Label>@CELTLabels:PPFLCSubmittedReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCSubmittedReasonMsg</Name>
+			<Label>@CELTLabels:PPFLcSubmittedReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCRejectedStatus</Name>
+			<Label>@CELTLabels:PPFLcRejectedStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCRejectedReasonCodes</Name>
+			<Label>@CELTLabels:PPFLCRejectedReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCRejectedReasonMsg</Name>
+			<Label>@CELTLabels:PPFLcRejectedReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCRefusedStatus</Name>
+			<Label>@CELTLabels:PPFLcRefusedStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCRefusedReasonCodes</Name>
+			<Label>@CELTLabels:PPFLCRefusedReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCRefusedReasonMsg</Name>
+			<Label>@CELTLabels:PPFLcRefusedReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCPmtCollectedStatus</Name>
+			<Label>@CELTLabels:PPFLcPmtCollectedStatus</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCPmtCollectedReasonCodes</Name>
+			<Label>@CELTLabels:PPFLCPmtCollectedReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PPFLCPmtCollectedReasonMsg</Name>
+			<Label>@CELTLabels:PPFLcPmtCollectedReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Variant</Name>
+			<Label>@CELTLabels:Variant</Label>
+			<StringSize>40</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TxnCategoryTLB</Name>
+			<Label>@CELTLabels:TxnCategoryTLB</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ConsolidatedDocumentId</Name>
+			<Label>@CELTLabels:ConsolidatedDocumentId</Label>
+			<StringSize>60</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TotalAmountExclVat</Name>
+			<Label>@CELTLabels:TotalAmountExclVat</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>VatRate</Name>
+					<Label>@CELTLabels:VatRate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TxnReportingPeriod</Name>
+			<Label>@CELTLabels:TxnReportingPeriod</Label>
+			<StringSize>20</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TxnReportedToPPFDT</Name>
+			<Label>@CELTLabels:TxnReportedToPPFDT</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TxnReportingStatus</Name>
+			<Label>@CELTLabels:TxnReportingStatus</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TxnReportingReasonCodes</Name>
+			<Label>@CELTLabels:TxnReportingReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>TxnReportingReasonMsg</Name>
+			<Label>@CELTLabels:TxnReportingReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PmtReportingPaymentDate</Name>
+					<Label>@CELTLabels:PmtReportingPaymentDate</Label>
+</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PmtReportingAmtCollected</Name>
+			<Label>@CELTLabels:PmtReportingAmtCollected</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PmtReportingPeriod</Name>
+			<Label>@CELTLabels:PmtReportingPeriod</Label>
+			<StringSize>20</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PmtReportedToPPFDT</Name>
+			<Label>@CELTLabels:PmtReportedToPPFDT</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PmtReportingStatus</Name>
+			<Label>@CELTLabels:PmtReportingStatus</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PmtReportingReasonCodes</Name>
+			<Label>@CELTLabels:PmtReportingReasonCodes</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>PmtReportingReasonMsg</Name>
+			<Label>@CELTLabels:PmtReportingReasonMsg</Label>
+			<StringSize>-1</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>LastAction</Name>
+			<Label>@CELTLabels:LastAction</Label>
+			<EnumType>CELTLifecycleAction</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldUtcDateTime">
+			<Name>LastActionAt</Name>
+			<Label>@CELTLabels:LastActionAt</Label>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>UniqueIdIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>UniqueId</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+		<AxTableIndex>
+			<Name>DocumentIdIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>DocumentId</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+		<AxTableIndex>
+			<Name>InvoiceIdIdx</Name>
+			<AllowDuplicates>Yes</AllowDuplicates>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>InvoiceId</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations />
+	<StateMachines />
+</AxTable>

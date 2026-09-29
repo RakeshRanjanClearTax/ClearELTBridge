@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTGetStatusService</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Periodic Get Status task - the single poller of the Clear backend command queue. Polls the
+/// configured status endpoint (CELTParameters.GetStatusURL, full URL, auth token from the
+/// parameters) and dispatches on the returned command type:
+/// DATA_POSTING - the envelope is { result: { commandId, command, metadata: { fileDetails: { url } } } };
+/// the referenced file is downloaded (pre-signed URL, no auth headers) and contains the full
+/// invoice responses as NDJSON - one writeback document per line. Every line is applied through
+/// CELTPostingService.parseWriteBack (UniqueId upsert enriches the rows the sync generation landed
+/// and re-stamps the journals). The command is then acknowledged to CELTParameters.AckURL with a
+/// per-document body: { commandId, metadata: { acknowledgmentInfo: [ { idempotencyKey, status
+/// POST_SUCCESS/POST_FAILED, postingInfo: null, postingResult: null } ] } } - one entry per NDJSON
+/// line, keyed by that line's idempotencyKey.
+/// DATA_EXTRACTION - the envelope THIS poll already received is handed to the ELT extraction
+/// pipeline as-is (build query -> extract -> pre-signed upload -> send result). The backend
+/// dequeues a command per GET, so the command is never fetched twice. Loops until no command
+/// is pending.
+/// </summary>
+internal final class CELTGetStatusService extends SysOperationServiceController
+{
+    private const int MaxCommandsPerRun = 100;
+
+    private CELTLogger      logger;
+    private CELTParameters  parameter;
+    private str             lastExtractionHandover;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new()
+    {
+        super();
+        this.parmClassName(classStr(CELTGetStatusService));
+        this.parmMethodName(methodStr(CELTGetStatusService, run));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point. Queued reliable-async so it can run as a recurring batch.
+    /// </summary>
+    /// <param name = "_args">menu args</param>
+    public static void main(Args _args)
+    {
+        CELTGetStatusService controller = new CELTGetStatusService();
+
+        controller.parmExecutionMode(SysOperationExecutionMode::ReliableAsynchronous);
+        controller.parmDialogCaption("@CELTLabels:GetStatus");
+        controller.startOperation();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>run</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Polls for pending DATA_POSTING commands and processes each: download file, apply writeback,
+    /// acknowledge. Stops when no command remains, a non-posting command arrives, or a step fails.
+    /// </summary>
+    public void run()
+    {
+        int              commandsDone;
+        System.Exception ex;
+
+        logger = new CELTLogger();
+
+        if (!CELTParameters::exist())
+        {
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, run),
+                "@CELTLabels:ParametersNotFound");
+            return;
+        }
+
+        parameter = CELTParameters::find();
+
+        if (parameter.GetStatusURL == '')
+        {
+            CELTParameters countBuf;
+            select count(RecId) from countBuf;
+
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, run),
+                'GetStatusURL is not configured in Clear ELT parameters.',
+                strFmt('Diagnostics: %1 parameter row(s); read RecId %2 (Primary=%3); BaseURL=%4; GetCommandURLSync=%5. If the form shows a value, restart the AOS (EntireTable cache) or delete duplicate parameter rows.',
+                    countBuf.RecId, parameter.RecId, parameter.Primary, parameter.BaseURL, parameter.GetCommandURLSync));
+            return;
+        }
+
+        try
+        {
+            while (commandsDone < MaxCommandsPerRun)
+            {
+                CELTLogger::commandId('');
+
+                if (!this.processNextCommand())
+                {
+                    break;
+                }
+
+                commandsDone++;
+            }
+
+            logger.logInfoMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, run),
+                strFmt('Get status processed %1 command(s).', commandsDone));
+            info(strFmt('Get status processed %1 command(s).', commandsDone));
+        }
+        catch (ex)
+        {
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, run),
+                ex.Message);
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processNextCommand</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Fetches one pending command and processes it end to end.
+    /// </summary>
+    /// <returns>true when a command was processed and acknowledged (continue polling)</returns>
+    private boolean processNextCommand()
+    {
+        CELTApiClient       apiClient      = new CELTApiClient(logger);
+        CELTPostingService  postingService = new CELTPostingService(logger);
+        str                 commandId, command, fileUrl;
+
+        // 1. Poll the status endpoint - the parameters-maintained token wins (first-write header).
+        apiClient.initialize(CELTAPIRequestType::GetStatus);
+        apiClient.setURL(parameter.GetStatusURL);
+        apiClient.setMethod(CELTAPIMethodType::GET);
+        apiClient.setContentType(CELTConstants::application_json);
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.addHeader(CELTConstants::x_clear_auth_token, CELTParameters::getAuthToken());
+        apiClient.sendRequest();
+
+        if (!apiClient.isSuccess())
+        {
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                strFmt('Get status failed with %1.', apiClient.getResponseStatus()));
+            return false;
+        }
+
+        str body = apiClient.getResponseBody();
+
+        [commandId, command, fileUrl] = this.parseEnvelope(body);
+
+        if (commandId == '')
+        {
+            // Nothing pending.
+            return false;
+        }
+
+        CELTLogger::commandId(commandId);
+
+        if (command == CELTConstants::DATA_EXTRACTION)
+        {
+            // The status and command endpoints serve the same backend queue, and the backend
+            // dequeues a command per GET - so the envelope THIS poll already received is handed
+            // over as-is (fetching again would come back empty and the command would be lost).
+            // The extraction pipeline runs on it and polling then continues here. If the same
+            // command comes straight back, the extraction did not complete and the run stops
+            // instead of spinning.
+            if (commandId == lastExtractionHandover)
+            {
+                logger.logWarningMessage(
+                    classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                    strFmt('Extraction command %1 is still pending after the hand-over - stopping this run.', commandId));
+                return false;
+            }
+
+            logger.logInfoMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                strFmt('Command %1 is DATA_EXTRACTION - handing over to the ELT extraction loop.', commandId));
+
+            lastExtractionHandover = commandId;
+
+            CELTIntegrationService integrationService = new CELTIntegrationService();
+            integrationService.processExtractionCommand(body);
+            return true;
+        }
+
+        if (command != CELTConstants::DATA_POSTING)
+        {
+            logger.logWarningMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                strFmt('Unexpected command type %1 for %2 - not processed by Get status.', command, commandId));
+            return false;
+        }
+
+        if (fileUrl == '')
+        {
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                strFmt('Command %1 has no result file url.', commandId));
+            return false;
+        }
+
+        // 2. Download the NDJSON result file (pre-signed URL - no auth headers).
+        apiClient.initialize(CELTAPIRequestType::DownloadFromS3);
+        apiClient.suppressAuthToken();
+        apiClient.setURL(fileUrl);
+        apiClient.setMethod(CELTAPIMethodType::GET);
+        apiClient.sendRequest();
+
+        if (!apiClient.isSuccess())
+        {
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                strFmt('Result file download failed with %1 for command %2.', apiClient.getResponseStatus(), commandId));
+            return false;
+        }
+
+        // 3. Apply every NDJSON line through the writeback processor, keeping each document's
+        //    idempotencyKey and outcome for the per-document acknowledgment.
+        int total, applied;
+        List           ackEntries = new List(Types::Container);
+        List           lines = strSplit(apiClient.getResponseBody(), '\n');
+        ListEnumerator le    = lines.getEnumerator();
+
+        while (le.moveNext())
+        {
+            str line = strRem(le.current(), '\r');
+
+            if (strLTrim(line) == '')
+            {
+                continue;
+            }
+
+            total++;
+            boolean lineOk = postingService.parseWriteBack(line, true);
+            if (lineOk)
+            {
+                applied++;
+            }
+
+            str lineKey = postingService.getIdempotencyKey();
+            if (lineKey != '')
+            {
+                ackEntries.addEnd([lineKey, lineOk]);
+            }
+            else
+            {
+                logger.logWarningMessage(
+                    classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                    strFmt('A writeback document of command %1 has no idempotencyKey - excluded from the acknowledgment.', commandId));
+            }
+        }
+
+        logger.logInfoMessage(
+            classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+            strFmt('Command %1: applied %2 of %3 writeback document(s).', commandId, applied, total));
+
+        if (total > 0 && ackEntries.elements() == 0)
+        {
+            // Every line failed to yield an idempotencyKey (corrupt file) - an ack with an empty
+            // acknowledgmentInfo would tell the backend the documents were consumed and they would
+            // never be re-sent. Leave the command unacknowledged so a later run retries it.
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, processNextCommand),
+                strFmt('Command %1: none of the %2 document(s) carried an idempotencyKey - not acknowledged.', commandId, total));
+            return false;
+        }
+
+        // 4. Acknowledge with per-document status - failed documents are reported as
+        //    POST_FAILED and the backend decides whether to re-send them.
+        return this.acknowledge(commandId, ackEntries);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>parseEnvelope</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Reads commandId, command and metadata.fileDetails.url from the command envelope.
+    /// </summary>
+    /// <param name = "_body">response JSON</param>
+    /// <returns>[commandId, command, fileUrl]</returns>
+    private container parseEnvelope(str _body)
+    {
+        str commandId, command, fileUrl;
+
+        if (_body == '')
+        {
+            return ['', '', ''];
+        }
+
+        Newtonsoft.Json.Linq.JObject root      = Newtonsoft.Json.Linq.JObject::Parse(_body);
+        Newtonsoft.Json.Linq.JObject resultObj = root.get_Item(CELTConstants::jResult) as Newtonsoft.Json.Linq.JObject;
+
+        if (resultObj == null)
+        {
+            return ['', '', ''];
+        }
+
+        commandId = this.tokenToStr(resultObj.get_Item(CELTConstants::jCommandId));
+        command   = this.tokenToStr(resultObj.get_Item(CELTConstants::jCommand));
+
+        Newtonsoft.Json.Linq.JObject metaObj = resultObj.get_Item(CELTConstants::jMetadata) as Newtonsoft.Json.Linq.JObject;
+        if (metaObj != null)
+        {
+            Newtonsoft.Json.Linq.JObject fileObj = metaObj.get_Item(CELTConstants::jFileDetails) as Newtonsoft.Json.Linq.JObject;
+            if (fileObj != null)
+            {
+                fileUrl = this.tokenToStr(fileObj.get_Item(CELTConstants::jUrl));
+            }
+        }
+
+        return [commandId, command, fileUrl];
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>acknowledge</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// POSTs the acknowledgment to the acknowledgement endpoint. Body shape:
+    /// { "commandId": ..., "metadata": { "acknowledgmentInfo": [ { "idempotencyKey", "status"
+    /// (POST_SUCCESS/POST_FAILED), "postingInfo": null, "postingResult": null }, ... ] } }.
+    /// Uses CELTParameters.AckURL (full URL); falls back to BaseURL + TriggerIngestionURL
+    /// when AckURL is empty.
+    /// </summary>
+    /// <param name = "_commandId">the processed command</param>
+    /// <param name = "_ackEntries">list of [idempotencyKey, ok] containers, one per document</param>
+    /// <returns>true on success</returns>
+    private boolean acknowledge(str _commandId, List _ackEntries)
+    {
+        CELTApiClient  apiClient = new CELTApiClient(logger);
+        str            ackUrl    = parameter.AckURL != '' ? parameter.AckURL : parameter.BaseURL + parameter.TriggerIngestionURL;
+        ListEnumerator ackLe     = _ackEntries.getEnumerator();
+        str            entryKey;
+        boolean        entryOk;
+
+        Newtonsoft.Json.Linq.JTokenWriter writer = new Newtonsoft.Json.Linq.JTokenWriter();
+        writer.WriteStartObject();
+        writer.WritePropertyName(CELTConstants::jCommandId);
+        writer.WriteValue(_commandId);
+        writer.WritePropertyName(CELTConstants::jMetadata);
+        writer.WriteStartObject();
+        writer.WritePropertyName(CELTConstants::jAcknowledgmentInfo);
+        writer.WriteStartArray();
+
+        while (ackLe.moveNext())
+        {
+            [entryKey, entryOk] = ackLe.current();
+
+            writer.WriteStartObject();
+            writer.WritePropertyName(CELTConstants::wIdempotencyKey);
+            writer.WriteValue(entryKey);
+            writer.WritePropertyName(CELTConstants::jStatus);
+            writer.WriteValue(entryOk ? CELTConstants::AckPostSuccess : CELTConstants::AckPostFailed);
+            writer.WritePropertyName(CELTConstants::jPostingInfo);
+            writer.WriteNull();
+            writer.WritePropertyName(CELTConstants::jPostingResult);
+            writer.WriteNull();
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+
+        apiClient.initialize(CELTAPIRequestType::TriggerIngestion);
+        apiClient.setURL(ackUrl);
+        apiClient.setMethod(CELTAPIMethodType::POST);
+        apiClient.setContentType(CELTConstants::application_json);
+        apiClient.addHeader(CELTConstants::x_erp_instance_id, parameter.ErpInstanceID);
+        apiClient.addHeader(CELTConstants::x_clear_auth_token, CELTParameters::getAuthToken());
+        apiClient.setRequestBody(writer.get_Token().ToString());
+        apiClient.sendRequest();
+
+        if (!apiClient.isSuccess())
+        {
+            logger.logErrorMessage(
+                classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, acknowledge),
+                strFmt('Acknowledgement failed with %1 for command %2.', apiClient.getResponseStatus(), _commandId));
+            return false;
+        }
+
+        logger.logInfoMessage(
+            classStr(CELTGetStatusService) + '/' + methodStr(CELTGetStatusService, acknowledge),
+            strFmt('Command %1 acknowledged.', _commandId));
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>tokenToStr</Name>
+				<Source><![CDATA[
+    private str tokenToStr(Newtonsoft.Json.Linq.JToken _token)
+    {
+        return _token != null ? _token.ToString() : '';
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

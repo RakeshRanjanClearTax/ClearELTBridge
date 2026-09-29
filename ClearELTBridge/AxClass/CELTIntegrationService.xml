@@ -1,0 +1,379 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTIntegrationService</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Batch orchestration for the Clear ELT integration job. Two phases per run:
+/// 1) Optional e-invoice generation for posted invoices selected in the dialog (sales or purchase,
+///    invoice-date window, invoice account) - the batch analog of the Generate e-invoice button. Each
+///    invoice goes through CELTIntegrationSyncHelper.processJournal, which also stamps the outcome on
+///    the invoice; invoices whose own stamp says Submitted are skipped, so a recurring job never
+///    re-submits. Nothing is ever decided from the vendor-assigned invoice number, which is not unique.
+/// 2) The original command loop: pulls one command at a time from the Clear backend and dispatches on
+///    the command type. Only DATA_EXTRACTION is implemented; DATA_POSTING is a documented future
+///    phase and stops the loop.
+/// With Document type = None (the default) only phase 2 runs, so existing scheduled jobs are unchanged.
+/// </summary>
+internal class CELTIntegrationService
+{
+    private CELTLogger          logger;
+    private CELTCommandFetcher  commandFetcher;
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>run</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// SysOperation entry point: generates e-invoices for the invoices selected in the dialog (when a
+    /// document type is chosen), then processes pending Clear commands until none remain.
+    /// </summary>
+    /// <param name = "_contract">dialog contract (document type, date window, invoice account)</param>
+    public void run(CELTIntegrationContract _contract)
+    {
+        logger          = new CELTLogger();
+        commandFetcher  = new CELTCommandFetcher(logger);
+
+        if (!CELTParameters::exist())
+        {
+            logger.logErrorMessage(
+                classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, run),
+                "@CELTLabels:ParametersNotFound");
+            return;
+        }
+
+        if (_contract && _contract.parmDocumentType() != CELTIntegrationDocumentType::None)
+        {
+            this.generateInvoices(_contract);
+        }
+
+        this.pollBackendCommands();
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processExtractionCommand</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Processes ONE extraction command whose envelope was already fetched by the Get status
+    /// poller. The backend dequeues a command per GET, so the envelope is reused instead of being
+    /// fetched again - a second fetch would come back empty and the command would be lost. Runs
+    /// the original ELT pipeline for it (build query -> extract -> pre-signed upload -> send
+    /// result). No data contract is involved, so this path can never select or generate e-invoices.
+    /// </summary>
+    /// <param name = "_envelopeBody">the raw response body that carried the DATA_EXTRACTION command</param>
+    /// <returns>true when the extraction pipeline completed</returns>
+    public boolean processExtractionCommand(str _envelopeBody)
+    {
+        System.Exception ex;
+        boolean          ok;
+
+        logger          = new CELTLogger();
+        commandFetcher  = new CELTCommandFetcher(logger);
+
+        if (!CELTParameters::exist())
+        {
+            logger.logErrorMessage(
+                classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, processExtractionCommand),
+                "@CELTLabels:ParametersNotFound");
+            return false;
+        }
+
+        try
+        {
+            if (!commandFetcher.loadFromResponse(_envelopeBody))
+            {
+                logger.logErrorMessage(
+                    classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, processExtractionCommand),
+                    'The handed-over envelope carries no command.');
+                return false;
+            }
+
+            CELTLogger::commandId(commandFetcher.getCommandId());
+
+            if (commandFetcher.getCommandType() != CELTConstants::DATA_EXTRACTION)
+            {
+                logger.logWarningMessage(
+                    classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, processExtractionCommand),
+                    strFmt('Command %1 is %2 - only DATA_EXTRACTION is processed on this path.',
+                        commandFetcher.getCommandId(), commandFetcher.getCommandType()));
+                return false;
+            }
+
+            ok = this.extractData(commandFetcher);
+        }
+        catch (ex)
+        {
+            logger.logErrorMessage(
+                classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, processExtractionCommand),
+                ex.Message, commandFetcher.getCommandId());
+            ok = false;
+        }
+
+        return ok;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>generateInvoices</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Generates e-invoices for the posted invoices matching the dialog filters, one invoice at a time
+    /// through the same sync path the Generate e-invoice button uses, with one result line per invoice.
+    /// Both journals are filtered on their own stamps and never on the shared writeback table, so a
+    /// vendor invoice number reused by another vendor, a customer invoice or an inbound document can
+    /// neither hide an invoice nor cause a re-submission. An invoice is picked up only while it carries
+    /// NO Clear document id: once Clear has assigned one - even to a failed validation - the document
+    /// exists on Clear's side and is never pushed again by this job. Invoices generated with earlier
+    /// versions carry no stamp, which is why the dialog requires a From date - set it to the go-live
+    /// date of this job. An invoice dated in the future is never sent early: the To date is capped
+    /// at the run date, so it goes out on its invoice date.
+    ///
+    /// </summary>
+    /// <param name = "_contract">dialog contract</param>
+    private void generateInvoices(CELTIntegrationContract _contract)
+    {
+        CELTIntegrationSyncHelper   helper        = new CELTIntegrationSyncHelper();
+        CustInvoiceJour             custInvoiceJour;
+        VendInvoiceJour             vendInvoiceJour;
+        TransDate                   fromDate      = _contract.parmFromDate() ? _contract.parmFromDate() : dateNull();
+        TransDate                   today         = systemDateGet();
+        TransDate                   toDate        = _contract.parmToDate()   ? _contract.parmToDate()   : today;
+        CustAccount                 custAccount   = _contract.parmCustAccount();
+        VendAccount                 vendAccount   = _contract.parmVendAccount();
+        str                         programName   = classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, generateInvoices);
+        str                         summary;
+        int                         total;
+        int                         processed;
+
+        helper.setLogger(logger);
+
+        // Future-dated invoices are held until their invoice date arrives: whatever the dialog
+        // says, the window never reaches past the run date, so a recurring job releases each
+        // invoice on the day it is dated.
+        if (toDate > today)
+        {
+            toDate = today;
+        }
+
+        switch (_contract.parmDocumentType())
+        {
+            case CELTIntegrationDocumentType::SalesInvoices:
+                while select custInvoiceJour
+                    order by custInvoiceJour.InvoiceDate, custInvoiceJour.InvoiceId
+                    where custInvoiceJour.InvoiceDate >= fromDate
+                       && custInvoiceJour.InvoiceDate <= toDate
+                       && (custAccount == '' || custInvoiceJour.InvoiceAccount == custAccount)
+                       && custInvoiceJour.CELTEInvoiceStatus != CELTEInvoiceStatus::Submitted
+                       && custInvoiceJour.CELTDocumentId == ''
+                {
+                    total++;
+                    if (this.generateOne(helper, custInvoiceJour, programName))
+                    {
+                        processed++;
+                        info(strFmt("@CELTLabels:IntegrationInvoiceOk", custInvoiceJour.InvoiceId));
+                    }
+                    else
+                    {
+                        info(strFmt("@CELTLabels:IntegrationInvoiceFail", custInvoiceJour.InvoiceId));
+                    }
+                }
+                break;
+
+            case CELTIntegrationDocumentType::PurchaseInvoices:
+                while select vendInvoiceJour
+                    order by vendInvoiceJour.InvoiceDate, vendInvoiceJour.InvoiceId
+                    where vendInvoiceJour.InvoiceDate >= fromDate
+                       && vendInvoiceJour.InvoiceDate <= toDate
+                       && (vendAccount == '' || vendInvoiceJour.InvoiceAccount == vendAccount)
+                       && vendInvoiceJour.CELTEInvoiceStatus != CELTEInvoiceStatus::Submitted
+                       && vendInvoiceJour.CELTDocumentId == ''
+                {
+                    total++;
+                    if (this.generateOne(helper, vendInvoiceJour, programName))
+                    {
+                        processed++;
+                        info(strFmt("@CELTLabels:IntegrationInvoiceOk", vendInvoiceJour.InvoiceId));
+                    }
+                    else
+                    {
+                        info(strFmt("@CELTLabels:IntegrationInvoiceFail", vendInvoiceJour.InvoiceId));
+                    }
+                }
+                break;
+        }
+
+        summary = strFmt("@CELTLabels:IntegrationGenerateDone", enum2Str(_contract.parmDocumentType()), processed, total);
+        info(summary);
+        logger.logInfoMessage(programName, summary, strFmt('%1..%2 %3%4', fromDate, toDate, custAccount, vendAccount));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>generateOne</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Generates the e-invoice for one posted journal record (and stamps it, for vendor invoices).
+    /// A failure is logged and never stops the remaining invoices of the run.
+    /// </summary>
+    /// <param name = "_helper">the sync helper carrying the shared logger</param>
+    /// <param name = "_journal">the CustInvoiceJour or VendInvoiceJour record</param>
+    /// <param name = "_programName">log program name</param>
+    /// <returns>true when the invoice was processed and its writeback received</returns>
+    private boolean generateOne(CELTIntegrationSyncHelper _helper, Common _journal, str _programName)
+    {
+        boolean ok;
+
+        try
+        {
+            ok = _helper.processJournal(_journal);
+        }
+        catch
+        {
+            logger.logErrorMessage(_programName,
+                strFmt("@CELTLabels:IntegrationGenerateFailed", tableId2Name(_journal.TableId), _journal.RecId));
+            ok = false;
+        }
+
+        return ok;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>pollBackendCommands</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The original integration loop: pulls commands until none remains, a posting command is seen,
+    /// or an unknown command type is returned.
+    /// </summary>
+    private void pollBackendCommands()
+    {
+        System.Exception ex;
+        boolean          exit = false;
+
+        while (!exit)
+        {
+            try
+            {
+                CELTLogger::commandId('');
+                commandFetcher.clear();
+
+                if (!commandFetcher.fetchCommands())
+                {
+                    // No command available -> stop.
+                    exit = true;
+                    continue;
+                }
+
+                CELTLogger::commandId(commandFetcher.getCommandId());
+
+                switch (commandFetcher.getCommandType())
+                {
+                    case CELTConstants::DATA_EXTRACTION:
+                        this.extractData(commandFetcher);
+                        break;
+
+                    case CELTConstants::DATA_POSTING:
+                        logger.logWarningMessage(
+                            classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, pollBackendCommands),
+                            'DATA_POSTING is not implemented in ClearELTBridge (future phase).',
+                            commandFetcher.getCommandId());
+                        exit = true;
+                        break;
+
+                    default:
+                        exit = true;
+                        break;
+                }
+            }
+            catch (ex)
+            {
+                logger.logErrorMessage(
+                    classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, pollBackendCommands),
+                    ex.Message, commandFetcher.getCommandId());
+                exit = true;
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>extractData</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Runs the extraction pipeline for one command: build query -> extract -> pre-sign -> upload
+    /// -> trigger ingestion. Mirrors the call order of the original ELTDataExtraction.fetchData.
+    /// </summary>
+    /// <param name = "_commandFetcher">the current command</param>
+    /// <returns>true when the full pipeline succeeded</returns>
+    private boolean extractData(CELTCommandFetcher _commandFetcher)
+    {
+        CELTQueryBuilder        builder     = new CELTQueryBuilder(logger);
+        CELTExtractor           extractor   = new CELTExtractor(logger);
+        CELTPresignService      presign     = new CELTPresignService(logger);
+        CELTS3Uploader          uploader    = new CELTS3Uploader(logger);
+        CELTIngestionTrigger    trigger     = new CELTIngestionTrigger(logger);
+        str                     presignedURL;
+
+        if (!builder.build(_commandFetcher.getConfig()))
+        {
+            return false;
+        }
+
+        if (!extractor.execute(builder))
+        {
+            return false;
+        }
+
+        if (!presign.generatePresignedURL(CELTConstants::data_Zip, _commandFetcher.getCommandId()))
+        {
+            return false;
+        }
+
+        presignedURL = presign.getPresignedURL();
+
+        if (!uploader.uploadToS3(presignedURL, extractor.getOutputStream()))
+        {
+            return false;
+        }
+
+        trigger.triggerIngestion(_commandFetcher.getCommandId(), presignedURL);
+
+        logger.logInfoMessage(
+            classStr(CELTIntegrationService) + '/' + methodStr(CELTIntegrationService, extractData),
+            strFmt("@CELTLabels:UploadComplete", _commandFetcher.getCommandId()));
+
+        return true;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setLogger</Name>
+				<Source><![CDATA[
+    public void setLogger(CELTLogger _logger)
+    {
+        logger = _logger;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setCommandFetcher</Name>
+				<Source><![CDATA[
+    public void setCommandFetcher(CELTCommandFetcher _commandFetcher)
+    {
+        commandFetcher = _commandFetcher;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

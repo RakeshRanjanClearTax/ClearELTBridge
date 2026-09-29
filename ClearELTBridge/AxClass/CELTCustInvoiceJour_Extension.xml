@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCustInvoiceJour_Extension</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Display helpers on the customer invoice journal for the e-invoice flow.
+/// </summary>
+[ExtensionOf(tableStr(CustInvoiceJour))]
+final class CELTCustInvoiceJour_Extension
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>CELTIrnWritebackStatus</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The latest raw writeback status for this invoice (empty when no writeback landed yet).
+    /// </summary>
+    /// <param name = "_this">journal record</param>
+    /// <returns>writeback STATUS value</returns>
+    [SysClientCacheDataMethodAttribute(true)]
+    public static display Description CELTIrnWritebackStatus(CustInvoiceJour _this)
+    {
+        ClearTaxEInvoiceResponseTable writebackData;
+
+        select firstonly STATUS, Success from writebackData
+            order by RecId desc
+            where writebackData.InvoiceId == _this.InvoiceId;
+
+        if (!writebackData.RecId)
+        {
+            // Legacy rows keyed the ERP invoice number in DocumentId.
+            select firstonly STATUS, Success from writebackData
+                order by RecId desc
+                where writebackData.DocumentId == _this.InvoiceId;
+        }
+
+        if (!writebackData.RecId)
+        {
+            return '';
+        }
+
+        if (writebackData.STATUS != '')
+        {
+            return writebackData.STATUS;
+        }
+
+        return strLwr(writebackData.Success) == 'true' ? 'Generated' : 'Failed';
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initFromSalesTable</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Carries the CELT e-invoicing header fields (UAE transaction type / billing frequency /
+    /// invoicing period / customs reference, FR tax point date code) from the sales order to
+    /// the posted journal - Finance and Operations does not copy extension fields at posting by itself, and a
+    /// missed copy posts silently blank.
+    /// </summary>
+    public void initFromSalesTable(SalesTable salesTable, SalesParmTable _salesParmTable)
+    {
+        next initFromSalesTable(salesTable, _salesParmTable);
+
+        this.CELTAETransactionType    = salesTable.CELTAETransactionType;
+        this.CELTAEFrequencyOfBilling = salesTable.CELTAEFrequencyOfBilling;
+        this.CELTInvoicePeriodStart   = salesTable.CELTInvoicePeriodStart;
+        this.CELTInvoicePeriodEnd     = salesTable.CELTInvoicePeriodEnd;
+        this.CELTAECustomsRefNumber   = salesTable.CELTAECustomsRefNumber;
+        this.CELTFRVatDueDateCode     = salesTable.CELTFRVatDueDateCode;
+        this.CELTAEPrincipalId        = salesTable.CELTAEPrincipalId;
+        this.CELTAEInvoiceNote        = salesTable.CELTAEInvoiceNote;
+        this.CELTAECreditNoteReason   = salesTable.CELTAECreditNoteReason;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initFromCustInvoiceTable</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Carries the CELT e-invoicing header fields from the free text invoice to the posted
+    /// journal - the third posting flow beside sales and purchase orders, and the one the
+    /// FRSI test invoices actually use.
+    /// </summary>
+    public void initFromCustInvoiceTable(CustInvoiceTable _custInvoiceTable, RefNum _refNum)
+    {
+        next initFromCustInvoiceTable(_custInvoiceTable, _refNum);
+
+        this.CELTAETransactionType    = _custInvoiceTable.CELTAETransactionType;
+        this.CELTAEFrequencyOfBilling = _custInvoiceTable.CELTAEFrequencyOfBilling;
+        this.CELTInvoicePeriodStart   = _custInvoiceTable.CELTInvoicePeriodStart;
+        this.CELTInvoicePeriodEnd     = _custInvoiceTable.CELTInvoicePeriodEnd;
+        this.CELTAECustomsRefNumber   = _custInvoiceTable.CELTAECustomsRefNumber;
+        this.CELTFRVatDueDateCode     = _custInvoiceTable.CELTFRVatDueDateCode;
+        this.CELTAEPrincipalId        = _custInvoiceTable.CELTAEPrincipalId;
+        this.CELTAEInvoiceNote        = _custInvoiceTable.CELTAEInvoiceNote;
+        this.CELTAECreditNoteReason   = _custInvoiceTable.CELTAECreditNoteReason;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

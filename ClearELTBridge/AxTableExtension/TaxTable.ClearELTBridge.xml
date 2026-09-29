@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTableExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>TaxTable.ClearELTBridge</Name>
+	<FieldGroupExtensions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>CELTEInvoiceFields</Name>
+			<Label>@CELTLabels:EInvoiceFields</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>CELTAETaxCategory</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEExemptionReasonCode</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEExemptionReason</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<FieldModifications />
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAETaxCategory</Name>
+			<HelpText>@CELTLabels:AETaxCategoryHelp</HelpText>
+			<Label>@CELTLabels:AETaxCategory</Label>
+			<StringSize>10</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAEExemptionReasonCode</Name>
+			<HelpText>@CELTLabels:AEExemptionReasonCodeHelp</HelpText>
+			<Label>@CELTLabels:AEExemptionReasonCode</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAEExemptionReason</Name>
+			<HelpText>@CELTLabels:AEExemptionReasonHelp</HelpText>
+			<Label>@CELTLabels:AEExemptionReason</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+	</Fields>
+	<Indexes />
+	<Mappings />
+	<PropertyModifications />
+	<Relations />
+</AxTableExtension>

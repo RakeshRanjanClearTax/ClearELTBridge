@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTable xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTLifecycleReasonCode</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Seeded lifecycle reason codes per action (Clear France API v4.1 - 6.9-6.11). Reason codes are
+/// a contract with the tax authority, not user data: the list form is read-only and the seeding
+/// tops up missing codes rather than checking for emptiness, so a partial list repairs itself.
+/// Global (not per-company) - the contract does not vary by legal entity.
+/// </summary>
+public class CELTLifecycleReasonCode extends common
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>exist</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Whether a reason code exists for an action.
+    /// </summary>
+    /// <param name = "_action">lifecycle action</param>
+    /// <param name = "_reasonCode">reason code</param>
+    /// <returns>true when present</returns>
+    public static boolean exist(CELTLifecycleAction _action, str _reasonCode)
+    {
+        return (select firstonly RecId from CELTLifecycleReasonCode
+            where CELTLifecycleReasonCode.Action     == _action
+               && CELTLifecycleReasonCode.ReasonCode == _reasonCode).RecId != 0;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+	<Label>@CELTLabels:LifecycleReasonCodes</Label>
+	<SaveDataPerCompany>No</SaveDataPerCompany>
+	<SubscriberAccessLevel>
+		<Read>Allow</Read>
+	</SubscriberAccessLevel>
+	<TitleField1>ReasonCode</TitleField1>
+	<TitleField2>Description</TitleField2>
+	<DeleteActions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>AutoReport</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoLookup</Name>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>ReasonCode</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>Description</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoIdentification</Name>
+			<AutoPopulate>Yes</AutoPopulate>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoSummary</Name>
+			<Fields />
+		</AxTableFieldGroup>
+		<AxTableFieldGroup>
+			<Name>AutoBrowse</Name>
+			<Fields />
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>Action</Name>
+			<Label>@CELTLabels:LifecycleAction</Label>
+			<EnumType>CELTLifecycleAction</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>ReasonCode</Name>
+			<Label>@CELTLabels:ReasonCode</Label>
+			<StringSize>30</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>Description</Name>
+			<Label>@CELTLabels:Description</Label>
+			<StringSize>255</StringSize>
+		</AxTableField>
+	</Fields>
+	<FullTextIndexes />
+	<Indexes>
+		<AxTableIndex>
+			<Name>ActionReasonIdx</Name>
+			<AlternateKey>Yes</AlternateKey>
+			<Fields>
+				<AxTableIndexField>
+					<DataField>Action</DataField>
+				</AxTableIndexField>
+				<AxTableIndexField>
+					<DataField>ReasonCode</DataField>
+				</AxTableIndexField>
+			</Fields>
+		</AxTableIndex>
+	</Indexes>
+	<Mappings />
+	<Relations />
+	<StateMachines />
+</AxTable>

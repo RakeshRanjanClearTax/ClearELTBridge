@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTIntegrationController</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// SysOperation controller that runs <c>CELTIntegrationService.run</c>, either interactively or as
+/// a recurring batch. Mirrors the original ELTIntegrationController.
+/// </summary>
+internal class CELTIntegrationController extends SysOperationServiceController
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>new</Name>
+				<Source><![CDATA[
+    public void new()
+    {
+        super();
+        this.parmClassName(classStr(CELTIntegrationService));
+        this.parmMethodName(methodStr(CELTIntegrationService, run));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point.
+    /// </summary>
+    /// <param name = "_args">menu args</param>
+    public static void main(Args _args)
+    {
+        CELTIntegrationController controller = new CELTIntegrationController();
+
+        controller.parmExecutionMode(SysOperationExecutionMode::Synchronous);
+        controller.parmDialogCaption("@CELTLabels:ClearELTIntegration");
+        controller.startOperation();
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

@@ -1,0 +1,1336 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTCreateTestData</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Generates a ready-to-extract e-invoice sample. In the UAE legal entity it stamps the AE PINT party
+/// fields and TRN / trade licence registrations on the seller and a test customer and posts a free text
+/// invoice carrying every e-invoice header field (see runSalesAE). In FRSI it stamps the
+/// seller (legal entity) and buyer SIREN/VAT registration numbers using the standard D365
+/// Registration IDs framework (TaxRegistration), then creates and posts a free text customer
+/// invoice and reports the posted invoice number. The dialog offers two buyers: the domestic
+/// customer FR_SI_0001 (SIREN + FR VAT, sales tax group VE-DOM) or a foreign intra-EU customer
+/// CELT-DE-001 in Germany (DE VAT only, created on demand, sales tax group VE-EU) for the
+/// e-reporting flow.
+///
+/// This environment does NOT carry the ClearELT ISV custom fields (HBSIREN, LTVAT, CLEARTAX*),
+/// so identifiers are written to the standard TaxRegistration tables keyed by registration type
+/// name ('VAT', 'SIREN'), which is what the France field mapping resolves against as its
+/// standard-field source.
+/// </summary>
+internal final class CELTCreateTestData
+{
+    // Target French legal entity this tool is validated for.
+    #define.TargetCompany('frsi')
+    #define.CountryFRA('FRA')
+
+    // Registration type names (must match the France mapping's expected literals).
+    #define.RegTypeVAT('VAT')
+    #define.RegTypeSIREN('SIREN')
+
+    // Seller (legal entity) identifiers.
+    #define.SellerVAT('FR12104732294')
+    #define.SellerSIREN('104732294')
+
+    // Domestic buyer (customer) identifiers.
+    #define.BuyerAccount('FR_SI_0001')
+    #define.BuyerVAT('FR104332194')
+    #define.BuyerSIREN('104332194')
+
+    // Foreign buyer (intra-EU, Germany): created on demand, VAT registration only (SIREN is a
+    // French identifier). Customer defaults are copied from the domestic buyer.
+    #define.ForeignAccount('CELT-DE-001')
+    #define.ForeignName('Adventure Works Germany GmbH')
+    #define.ForeignCountry('DEU')
+    #define.ForeignVAT('DE123456789')
+    #define.ForeignStreet('Friedrichstrasse 100')
+    #define.ForeignCity('Berlin')
+    #define.ForeignZip('10117')
+    #define.ForeignSalesTaxGroup('VE-EU')
+
+    // Own item sales tax group mirroring VE-EU's codes. FRSI ships VE-EU = { EXONERE 0% } while
+    // item group NORMAL = { TVA19.6 }: their intersection is EMPTY and intersection checking is
+    // off, so the invoice would post with no tax line at all - no 0% exempt VAT evidence for
+    // e-reporting. A dedicated group guarantees the intersection without touching shared setup.
+    #define.ForeignItemTaxGroup('CELT-EXO')
+
+    // Invoice content.
+    #define.RevenueAccount('706000')
+    #define.SalesTaxGroup('VE-DOM')
+    #define.ItemSalesTaxGroup('NORMAL')
+
+    // Purchase (vendor) invoice mode - works in any company; the test vendor is created on demand
+    // with defaults copied from the first active vendor, the line uses a released service item.
+    #define.TestVendor('CELT-VEND-001')
+    #define.VendorNameFR('Boulangerie Moderne SARL')
+    #define.VendorNameAE('Al Noor Trading LLC')
+    #define.CountryARE('ARE')
+    #define.ServiceSAC('998313')
+    #define.AuthorityNameAE('Department of Economy and Tourism - Dubai')
+    #define.PurchaseNote('ClearTax e-invoice test purchase invoice')
+    #define.AEVendorTRN('100200099000003')
+    #define.AEVendorTL('CN-9988776')
+    #define.VendorSIREN('552100554')
+    #define.VendorVAT('FR33552100554')
+    // UAE sales mode (legal entity 'UAE'): AE PINT party fields, TRN / trade licence registrations and a
+    // free text invoice carrying every e-invoice header field. The seller TRN (and its Peppol endpoint
+    // '0235;&lt;TRN&gt;') is SET to the agreed test value; the trade licence is kept when already maintained.
+    #define.CompanyAE('uae')
+    #define.RegTypeTL('TL')
+    #define.AESellerTRN('100500099000003')
+    #define.RegTypeEndpoint('EndPoint ID')
+    #define.EndpointSchemeAE('0235;')
+    #define.AESellerTL('CN-1234567')
+    #define.AECustomer('CELT-AE-001')
+    #define.AECustomerName('Gulf Horizon Trading LLC')
+    #define.AETemplateCustomer('UC000001')
+    #define.AEStreet('Sheikh Zayed Road 12')
+    #define.AECity('Dubai')
+    #define.AEBuyerTRN('100200099000003')
+    #define.AEBuyerTL('CN-7654321')
+    #define.AESalesTaxGroup('DOM-VAT')
+    #define.AEItemTaxGroup('STD')
+    #define.AERevenueAccount('401100')
+    #define.SalesNoteAE('ClearTax UAE e-invoice test invoice')
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>main</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Menu-item entry point. Asks which buyer to invoice (foreign intra-EU or domestic), builds
+    /// the France e-invoice test data and shows the invoice number.
+    /// </summary>
+    /// <param name = "_args">menu args</param>
+    public static void main(Args _args)
+    {
+        Dialog      dialog        = new Dialog("@CELTLabels:CreateTestData");
+        DialogField foreignField  = dialog.addField(extendedTypeStr(NoYesId), "@CELTLabels:TestDataForeignPrompt");
+        DialogField purchaseField = dialog.addField(extendedTypeStr(NoYesId), "@CELTLabels:TestDataPurchasePrompt");
+
+        foreignField.value(NoYes::Yes);
+        purchaseField.value(NoYes::No);
+
+        if (!dialog.run())
+        {
+            return;
+        }
+
+        CELTCreateTestData generator = new CELTCreateTestData();
+        generator.run(foreignField.value(), purchaseField.value());
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>run</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Orchestrates the whole test-data build: seller registrations, buyer registrations, then the
+    /// posted free text invoice. Each step reports its outcome to the infolog.
+    /// </summary>
+    /// <param name = "_foreignBuyer">Yes = invoice the foreign intra-EU customer (created on
+    /// demand); No = invoice the domestic customer FR_SI_0001</param>
+    /// <param name = "_purchaseInvoice">Yes = create and post a purchase (vendor) invoice with the
+    /// e-invoice custom fields instead of the customer invoice (any company)</param>
+    public void run(NoYes _foreignBuyer = NoYes::No, NoYes _purchaseInvoice = NoYes::No)
+    {
+        str invoiceId;
+
+        if (_purchaseInvoice == NoYes::Yes)
+        {
+            this.runPurchase();
+            return;
+        }
+
+        if (strLwr(curExt()) == #CompanyAE)
+        {
+            this.runSalesAE();
+            return;
+        }
+
+        if (strLwr(curExt()) != #TargetCompany)
+        {
+            error("@CELTLabels:TestDataWrongCompany");
+            return;
+        }
+
+        info("@CELTLabels:TestDataStarting");
+
+        try
+        {
+            this.setupSellerRegistrations();
+
+            if (_foreignBuyer == NoYes::Yes)
+            {
+                this.ensureForeignCustomer();
+                this.setupForeignBuyerRegistrations();
+                this.ensureForeignItemTaxGroup();
+                invoiceId = this.createAndPostInvoice(#ForeignAccount, #ForeignSalesTaxGroup, #ForeignItemTaxGroup);
+            }
+            else
+            {
+                this.setupBuyerRegistrations();
+                invoiceId = this.createAndPostInvoice(#BuyerAccount, #SalesTaxGroup, #ItemSalesTaxGroup);
+            }
+
+            if (invoiceId != '')
+            {
+                info(strFmt("@CELTLabels:TestDataInvoicePosted", invoiceId));
+            }
+        }
+        catch (Exception::Error)
+        {
+            error(strFmt("@CELTLabels:TestDataFailed", CELTCreateTestData::lastError()));
+        }
+        catch
+        {
+            error(strFmt("@CELTLabels:TestDataFailed", CELTCreateTestData::lastError()));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setupSellerRegistrations</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Stamps the SIREN and VAT registration numbers on the current legal entity's primary postal
+    /// address (the seller chain COMPANYINFO -> DIRPARTYLOCATION -> TAXREGISTRATION).
+    /// </summary>
+    private void setupSellerRegistrations()
+    {
+        CompanyInfo             companyInfo = CompanyInfo::find();
+        LogisticsPostalAddress  postalAddr  = companyInfo.postalAddress();
+        DirPartyLocation        partyLoc;
+
+        if (!postalAddr.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataNoLegalEntityAddress", curExt()));
+        }
+
+        partyLoc = DirPartyLocation::findByPartyLocation(companyInfo.RecId, postalAddr.Location);
+
+        if (!partyLoc.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataNoLegalEntityLocation", curExt()));
+        }
+
+        this.ensureRegistration(partyLoc.RecId, #RegTypeSIREN, #SellerSIREN);
+        this.ensureRegistration(partyLoc.RecId, #RegTypeVAT,   #SellerVAT);
+
+        info(strFmt("@CELTLabels:TestDataSellerRegDone", companyInfo.Name, #SellerSIREN, #SellerVAT));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setupBuyerRegistrations</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Stamps the SIREN and VAT registration numbers on the buyer customer's primary postal address
+    /// (the buyer chain CUSTTABLE -> DIRPARTYTABLE -> DIRPARTYLOCATION -> TAXREGISTRATION).
+    /// </summary>
+    private void setupBuyerRegistrations()
+    {
+        CustTable               custTable  = CustTable::find(#BuyerAccount);
+        LogisticsPostalAddress  postalAddr;
+        DirPartyLocation        partyLoc;
+
+        if (!custTable.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataBuyerMissing", #BuyerAccount, curExt()));
+        }
+
+        postalAddr = custTable.postalAddress();
+
+        if (!postalAddr.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataBuyerNoAddress", #BuyerAccount));
+        }
+
+        partyLoc = DirPartyLocation::findByPartyLocation(custTable.Party, postalAddr.Location);
+
+        if (!partyLoc.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataBuyerNoLocation", #BuyerAccount));
+        }
+
+        this.ensureRegistration(partyLoc.RecId, #RegTypeSIREN, #BuyerSIREN);
+        this.ensureRegistration(partyLoc.RecId, #RegTypeVAT,   #BuyerVAT);
+
+        info(strFmt("@CELTLabels:TestDataBuyerReady", #BuyerAccount, #BuyerSIREN, #BuyerVAT));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureForeignCustomer</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Creates the foreign intra-EU test customer on demand: organization party with a primary
+    /// postal address in Germany, customer defaults copied from the domestic test buyer.
+    /// Idempotent - an existing customer is left untouched.
+    /// </summary>
+    private void ensureForeignCustomer()
+    {
+        CustTable                   custTable = CustTable::find(#ForeignAccount);
+        CustTable                   domestic;
+        TaxGroupHeading             taxGroupHeading;
+        DirParty                    dirParty;
+        DirPartyPostalAddressView   addrView;
+
+        if (custTable.RecId)
+        {
+            return;
+        }
+
+        domestic = CustTable::find(#BuyerAccount);
+        if (!domestic.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataTemplateCustMissing", #BuyerAccount, curExt()));
+        }
+
+        select firstonly RecId from taxGroupHeading
+            where taxGroupHeading.TaxGroup == #ForeignSalesTaxGroup;
+        if (!taxGroupHeading.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataTaxGroupMissing", #ForeignSalesTaxGroup, curExt()));
+        }
+
+        ttsbegin;
+        custTable.clear();
+        custTable.initValue();
+        custTable.AccountNum = #ForeignAccount;
+        custTable.CustGroup  = domestic.CustGroup;
+        custTable.PaymTermId = domestic.PaymTermId;
+        custTable.Currency   = domestic.Currency;
+        custTable.insert(DirPartyType::Organization, #ForeignName);
+
+        dirParty = DirParty::constructFromCommon(custTable);
+
+        addrView.LocationName    = #ForeignName;
+        addrView.Street          = #ForeignStreet;
+        addrView.City            = #ForeignCity;
+        addrView.ZipCode         = #ForeignZip;
+        addrView.CountryRegionId = #ForeignCountry;
+        addrView.IsPrimary       = NoYes::Yes;
+
+        dirParty.createOrUpdatePostalAddress(addrView);
+        ttscommit;
+
+        info(strFmt("@CELTLabels:TestDataForeignCustCreated", #ForeignAccount, #ForeignName));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setupForeignBuyerRegistrations</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Stamps the German VAT registration number on the foreign customer's primary postal address.
+    /// A foreign buyer carries no SIREN - that is a French identifier.
+    /// </summary>
+    private void setupForeignBuyerRegistrations()
+    {
+        CustTable               custTable  = CustTable::find(#ForeignAccount);
+        LogisticsPostalAddress  postalAddr;
+        DirPartyLocation        partyLoc;
+
+        if (!custTable.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataForeignCustMissing", #ForeignAccount, curExt()));
+        }
+
+        postalAddr = custTable.postalAddress();
+
+        if (!postalAddr.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataForeignNoAddress", #ForeignAccount));
+        }
+
+        partyLoc = DirPartyLocation::findByPartyLocation(custTable.Party, postalAddr.Location);
+
+        if (!partyLoc.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataForeignNoLocation", #ForeignAccount));
+        }
+
+        this.ensureRegistration(partyLoc.RecId, #RegTypeVAT, #ForeignVAT, #ForeignCountry);
+
+        info(strFmt("@CELTLabels:TestDataForeignBuyerReady", #ForeignAccount, #ForeignVAT));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureForeignItemTaxGroup</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Ensures the dedicated item sales tax group exists and mirrors every tax code of the foreign
+    /// sales tax group, so the line-level intersection can never be empty. Idempotent: existing
+    /// codes are kept, new codes on the sales tax group are mirrored on re-runs.
+    /// </summary>
+    private void ensureForeignItemTaxGroup()
+    {
+        TaxItemGroupHeading heading = TaxItemGroupHeading::find(#ForeignItemTaxGroup);
+        TaxGroupData        groupData;
+        TaxOnItem           taxOnItem;
+        int                 mirrored;
+
+        ttsbegin;
+        if (!heading.RecId)
+        {
+            heading.clear();
+            heading.initValue();
+            heading.TaxItemGroup = #ForeignItemTaxGroup;
+            heading.Name         = 'ClearTax intra-EU test (mirrors VE-EU)';
+            heading.insert();
+        }
+
+        while select TaxCode, TaxExemptCode from groupData
+            where groupData.TaxGroup == #ForeignSalesTaxGroup
+        {
+            mirrored++;
+
+            select firstonly RecId from taxOnItem
+                where taxOnItem.TaxItemGroup == #ForeignItemTaxGroup
+                   && taxOnItem.TaxCode      == groupData.TaxCode;
+
+            if (!taxOnItem.RecId)
+            {
+                taxOnItem.clear();
+                taxOnItem.initValue();
+                taxOnItem.TaxItemGroup  = #ForeignItemTaxGroup;
+                taxOnItem.TaxCode       = groupData.TaxCode;
+                taxOnItem.TaxExemptCode = groupData.TaxExemptCode;
+                taxOnItem.insert();
+            }
+        }
+        ttscommit;
+
+        if (!mirrored)
+        {
+            warning(strFmt("@CELTLabels:TestDataItemTaxGroupEmpty", #ForeignSalesTaxGroup));
+        }
+        else
+        {
+            info(strFmt("@CELTLabels:TestDataItemTaxGroupReady", #ForeignItemTaxGroup, #ForeignSalesTaxGroup));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureRegistration</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Idempotently ensures a registration number exists on a party location for a registration type
+    /// in the given country. Creates the registration type and the country's applicability rule on
+    /// demand, then inserts (or refreshes) the number on the TaxRegistration date-effective table.
+    /// </summary>
+    /// <param name = "_partyLocation">the DirPartyLocation RecId the number belongs to</param>
+    /// <param name = "_typeName">registration type name ('VAT' or 'SIREN')</param>
+    /// <param name = "_number">the registration number to store</param>
+    /// <param name = "_countryId">applicability country (default France)</param>
+    private void ensureRegistration(
+        DirPartyLocationRecId   _partyLocation,
+        TaxRegistrationTypeName _typeName,
+        TaxRegistrationNumber   _number,
+        LogisticsAddressCountryRegionId _countryId = #CountryFRA,
+        boolean                 _overwrite = true)
+    {
+        RefRecId            typeRecId;
+        RefRecId            ruleRecId;
+        TaxRegistration     taxRegistration;
+
+        // Registration type (global, upsert by name).
+        typeRecId = TaxRegistrationType::findByType(_typeName).RecId;
+        if (!typeRecId)
+        {
+            typeRecId = TaxRegistrationType::createTaxRegistrationType(_typeName, _typeName);
+        }
+
+        // Country applicability rule for this type (upsert by type + country). No format mask and a
+        // non-unique / updateable rule so repeated runs and shared numbers never fail validateWrite.
+        ruleRecId = TaxRegistrationTypeApplicabilityRule::findByTypeCountryId(typeRecId, _countryId).RecId;
+        if (!ruleRecId)
+        {
+            ruleRecId = TaxRegistrationTypeApplicabilityRule::createTaxRegistrationTypeRules(
+                typeRecId,
+                _countryId,
+                PartyTypeRestriction::None,
+                NoYes::No,
+                NoYes::Yes);
+        }
+
+        // The actual number (date-effective). Refresh if present, insert if not.
+        taxRegistration = TaxRegistration::findDirPartyLocationOnDate(_partyLocation, ruleRecId, true);
+
+        ttsbegin;
+        if (taxRegistration.RecId)
+        {
+            if (_overwrite && taxRegistration.RegistrationNumber != _number)
+            {
+                // TaxRegistration is date-effective: an in-place change must declare its mode.
+                taxRegistration.validTimeStateUpdateMode(ValidTimeStateUpdate::Correction);
+                taxRegistration.RegistrationNumber = _number;
+                taxRegistration.update();
+            }
+        }
+        else
+        {
+            taxRegistration.initValue();
+            taxRegistration.DirPartyLocation                     = _partyLocation;
+            taxRegistration.TaxRegistrationTypeApplicabilityRule = ruleRecId;
+            taxRegistration.RegistrationNumber                   = _number;
+            taxRegistration.ValidTo                              = maxDate();
+            taxRegistration.insert();
+        }
+        ttscommit;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>createAndPostInvoice</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Creates a one-line free text invoice for the given customer and posts it, returning the
+    /// posted invoice number from CustInvoiceJour.
+    /// </summary>
+    /// <param name = "_custAccount">invoice customer account</param>
+    /// <param name = "_taxGroup">sales tax group for the invoice line</param>
+    /// <param name = "_taxItemGroup">item sales tax group for the invoice line (must intersect
+    /// the sales tax group, or the invoice posts without any tax line)</param>
+    /// <returns>the posted CustInvoiceJour.InvoiceId, or empty on failure</returns>
+    private str createAndPostInvoice(CustAccount _custAccount, TaxGroup _taxGroup, TaxItemGroup _taxItemGroup,
+        MainAccountNum _revenueAccount = #RevenueAccount, boolean _aeFields = false)
+    {
+        CustInvoiceTable                custInvoiceTable;
+        CustInvoiceLine                 custInvoiceLine;
+        CustInvoiceJour                 custInvoiceJour;
+        CustPostInvoice                 custPostInvoice;
+        RefRecId                        ledgerDim;
+        RecId                           priorMaxRecId;
+
+        ledgerDim = LedgerDefaultAccountHelper::getDefaultAccountFromMainAccountId(_revenueAccount);
+        if (!ledgerDim)
+        {
+            error("@CELTLabels:TestDataNoRevenueAccount");
+            return '';
+        }
+
+        // Remember the newest posted invoice so we can identify ours after posting (the poster
+        // exposes no getter for the created journal).
+        select firstonly RecId from custInvoiceJour
+            order by RecId desc;
+        priorMaxRecId = custInvoiceJour.RecId;
+
+        ttsbegin;
+        custInvoiceTable.initValue();
+        custInvoiceTable.OrderAccount   = _custAccount;
+        custInvoiceTable.InvoiceAccount = _custAccount;
+        custInvoiceTable.CurrencyCode   = CustTable::find(_custAccount).Currency;
+        custInvoiceTable.InvoiceDate    = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+        custInvoiceTable.DocumentDate   = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+        custInvoiceTable.DueDate        = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone()) + 15;
+
+        if (_aeFields)
+        {
+            // Every e-invoice header field the UAE mapping reads; the posting CoC copies them to the journal.
+            custInvoiceTable.CELTAETransactionType    = CELTAETransactionType::Standard;
+            custInvoiceTable.CELTAEFrequencyOfBilling = CELTAEFrequencyOfBilling::Monthly;
+            custInvoiceTable.CELTInvoicePeriodStart   = dateStartMth(custInvoiceTable.InvoiceDate);
+            custInvoiceTable.CELTInvoicePeriodEnd     = dateEndMth(custInvoiceTable.InvoiceDate);
+            custInvoiceTable.CELTAEInvoiceNote        = #SalesNoteAE;
+        }
+
+        custInvoiceTable.insert();
+
+        custInvoiceLine.initValue();
+        custInvoiceLine.initFromCustInvoiceTable(custInvoiceTable);
+        custInvoiceLine.ParentRecId     = custInvoiceTable.RecId;
+        custInvoiceLine.LedgerDimension = ledgerDim;
+        custInvoiceLine.Description     = _aeFields ? 'ClearTax UAE e-invoice test line' : 'ClearTax France e-invoice test line';
+        custInvoiceLine.AmountCur       = 1000.00;
+        custInvoiceLine.Quantity        = 1;
+        custInvoiceLine.UnitPrice       = 1000.00;
+        custInvoiceLine.TaxGroup        = _taxGroup;
+        custInvoiceLine.TaxItemGroup    = _taxItemGroup;
+        custInvoiceLine.insert();
+        ttscommit;
+
+        // Post the free text invoice. construct() takes CustParameters defaults for the credit check.
+        custPostInvoice = CustPostInvoice::construct(custInvoiceTable);
+        custPostInvoice.run();
+
+        if (!custPostInvoice.isPostingOK())
+        {
+            throw error("@CELTLabels:TestDataFTIPostingFailed");
+        }
+
+        // The open header is consumed by posting; find the CustInvoiceJour it produced.
+        select firstonly custInvoiceJour
+            order by RecId desc
+            where custInvoiceJour.RecId > priorMaxRecId
+               && custInvoiceJour.InvoiceAccount == _custAccount
+               && custInvoiceJour.SalesId        == '';
+
+        return custInvoiceJour.InvoiceId;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>runSalesAE</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// UAE flavour of the sales test data: the legal entity and a UAE test customer get the AE PINT
+    /// party fields and their TRN / trade licence registrations, then a one-line free text invoice
+    /// carrying every e-invoice header field is posted, ready for Generate e-invoice.
+    /// </summary>
+    private void runSalesAE()
+    {
+        str invoiceId;
+
+        info("@CELTLabels:TestDataStartingAE");
+
+        try
+        {
+            this.setupSellerAE();
+            this.ensureBuyerAE();
+            invoiceId = this.createAndPostInvoice(#AECustomer, #AESalesTaxGroup, #AEItemTaxGroup, #AERevenueAccount, true);
+
+            if (invoiceId != '')
+            {
+                info(strFmt("@CELTLabels:TestDataInvoicePosted", invoiceId));
+            }
+        }
+        catch (Exception::Error)
+        {
+            error(strFmt("@CELTLabels:TestDataFailed", CELTCreateTestData::lastError()));
+        }
+        catch
+        {
+            error(strFmt("@CELTLabels:TestDataFailed", CELTCreateTestData::lastError()));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setupSellerAE</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Legal entity as UAE seller: legal registration type TL with its authority; the TRN (registration
+    /// type VAT) and the Peppol endpoint (EndPoint ID = 0235;TRN) are set to the agreed test values on
+    /// the primary address, while an already maintained trade licence (TL) is kept. The TRN is also
+    /// written to the legal entity's own Tax registration number (CompanyInfo.VATNum): that field, not
+    /// the Registration ID, is what the COMPANYINFO extraction block reports as VATNUM.
+    /// </summary>
+    private void setupSellerAE()
+    {
+        CompanyInfo             companyInfo = CompanyInfo::find();
+        LogisticsPostalAddress  postalAddr  = companyInfo.postalAddress();
+        DirPartyLocation        partyLoc;
+
+        if (!postalAddr.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataNoLegalEntityAddress", curExt()));
+        }
+
+        partyLoc = DirPartyLocation::findByPartyLocation(companyInfo.RecId, postalAddr.Location);
+        if (!partyLoc.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataNoLegalEntityLocation", curExt()));
+        }
+
+        this.ensureRegistration(partyLoc.RecId, #RegTypeVAT,      #AESellerTRN,                        #CountryARE);
+        this.ensureRegistration(partyLoc.RecId, #RegTypeEndpoint, #EndpointSchemeAE + #AESellerTRN,    #CountryARE);
+        this.ensureRegistration(partyLoc.RecId, #RegTypeTL,       #AESellerTL,                         #CountryARE, false);
+
+        if (companyInfo.CELTAELegalRegType == CELTAELegalRegType::None || companyInfo.CELTAEAuthorityName == ''
+            || companyInfo.VATNum != #AESellerTRN)
+        {
+            ttsbegin;
+            companyInfo = CompanyInfo::find(true);
+            if (companyInfo.CELTAELegalRegType == CELTAELegalRegType::None)
+            {
+                companyInfo.CELTAELegalRegType = CELTAELegalRegType::TL;
+            }
+            if (companyInfo.CELTAEAuthorityName == '')
+            {
+                companyInfo.CELTAEAuthorityName = #AuthorityNameAE;
+            }
+            companyInfo.VATNum = #AESellerTRN;
+            companyInfo.update();
+            ttscommit;
+        }
+
+        info(strFmt("@CELTLabels:TestDataSellerAEDone", companyInfo.Name, enum2Str(companyInfo.CELTAELegalRegType),
+            this.registrationNumber(partyLoc.RecId, #RegTypeVAT, #CountryARE)));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>registrationNumber</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The registration number currently valid on a party location for a type and country, or empty.
+    /// </summary>
+    private TaxRegistrationNumber registrationNumber(DirPartyLocationRecId _partyLocation, TaxRegistrationTypeName _typeName, LogisticsAddressCountryRegionId _countryId)
+    {
+        RefRecId typeRecId = TaxRegistrationType::findByType(_typeName).RecId;
+        RefRecId ruleRecId = TaxRegistrationTypeApplicabilityRule::findByTypeCountryId(typeRecId, _countryId).RecId;
+
+        return TaxRegistration::findDirPartyLocationOnDate(_partyLocation, ruleRecId).RegistrationNumber;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureBuyerAE</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// UAE test customer CELT-AE-001, created on demand from UC000001's defaults: Dubai address,
+    /// AE party fields (trade licence type, authority), TRN + trade licence registrations, and the TRN
+    /// on the customer's Tax exempt number (CustTable.VATNum) read by the CUSTTABLE extraction block.
+    /// Idempotent - an existing customer only gets its registrations and VATNum refreshed.
+    /// </summary>
+    private void ensureBuyerAE()
+    {
+        CustTable                   custTable = CustTable::find(#AECustomer);
+        CustTable                   template;
+        DirParty                    dirParty;
+        DirPartyPostalAddressView   addrView;
+        LogisticsPostalAddress      postalAddr;
+        DirPartyLocation            partyLoc;
+
+        if (!custTable.RecId)
+        {
+            template = CustTable::find(#AETemplateCustomer);
+            if (!template.RecId)
+            {
+                throw error(strFmt("@CELTLabels:TestDataTemplateCustMissing", #AETemplateCustomer, curExt()));
+            }
+
+            ttsbegin;
+            custTable.clear();
+            custTable.initValue();
+            custTable.AccountNum          = #AECustomer;
+            custTable.CustGroup           = template.CustGroup;
+            custTable.PaymTermId          = template.PaymTermId;
+            custTable.Currency            = template.Currency;
+            custTable.TaxGroup            = #AESalesTaxGroup;
+            custTable.VATNum              = #AEBuyerTRN;
+            custTable.CELTAELegalRegType  = CELTAELegalRegType::TL;
+            custTable.CELTAEAuthorityName = #AuthorityNameAE;
+            custTable.insert(DirPartyType::Organization, #AECustomerName);
+
+            dirParty = DirParty::constructFromCommon(custTable);
+            addrView.LocationName    = #AECustomerName;
+            addrView.Street          = #AEStreet;
+            addrView.City            = #AECity;
+            addrView.CountryRegionId = #CountryARE;
+            addrView.IsPrimary       = NoYes::Yes;
+            dirParty.createOrUpdatePostalAddress(addrView);
+            ttscommit;
+
+            info(strFmt("@CELTLabels:TestDataAECustCreated", #AECustomer, #AECustomerName));
+            custTable = CustTable::find(#AECustomer);
+        }
+
+        postalAddr = custTable.postalAddress();
+        if (!postalAddr.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataBuyerNoAddress", #AECustomer));
+        }
+
+        partyLoc = DirPartyLocation::findByPartyLocation(custTable.Party, postalAddr.Location);
+        if (!partyLoc.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataBuyerNoLocation", #AECustomer));
+        }
+
+        this.ensureRegistration(partyLoc.RecId, #RegTypeVAT,      #AEBuyerTRN,                      #CountryARE);
+        this.ensureRegistration(partyLoc.RecId, #RegTypeEndpoint, #EndpointSchemeAE + #AEBuyerTRN,  #CountryARE);
+        this.ensureRegistration(partyLoc.RecId, #RegTypeTL,       #AEBuyerTL,                       #CountryARE);
+
+        if (custTable.VATNum != #AEBuyerTRN)
+        {
+            ttsbegin;
+            custTable = CustTable::find(#AECustomer, true);
+            custTable.VATNum = #AEBuyerTRN;
+            custTable.update();
+            ttscommit;
+        }
+
+        info(strFmt("@CELTLabels:TestDataBuyerAEReady", #AECustomer, #AEBuyerTRN, #AEBuyerTL));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>runPurchase</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Purchase mode: test vendor with the UAE registration fields, a released service item stamped
+    /// with the item e-invoice fields, then a purchase order carrying every header e-invoice field,
+    /// confirmed and invoiced so the values land on VendInvoiceJour through the posting copy.
+    /// Company-agnostic (FRSI gets the France tax point code, others the UAE-only shape).
+    /// </summary>
+    private void runPurchase()
+    {
+        VendAccount vendAccount;
+        ItemId      itemId;
+        PurchId     purchId;
+        str         invoiceId;
+
+        info(strFmt("@CELTLabels:TestDataStartingPurchase", curExt()));
+
+        try
+        {
+            vendAccount = this.ensureTestVendor();
+            this.setupVendorRegistrations();
+            itemId      = this.findServiceItem();
+            this.stampItemEInvoiceFields(itemId);
+            this.ensurePurchaseInventPosting(itemId);
+
+            [purchId, invoiceId] = this.createAndPostPurchaseInvoice(vendAccount, itemId);
+
+            info(strFmt("@CELTLabels:TestDataPurchInvoicePosted", invoiceId, purchId));
+            this.reportPurchaseFields(purchId);
+        }
+        catch (Exception::Error)
+        {
+            error(strFmt("@CELTLabels:TestDataFailed", CELTCreateTestData::lastError()));
+        }
+        catch
+        {
+            error(strFmt("@CELTLabels:TestDataFailed", CELTCreateTestData::lastError()));
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensureTestVendor</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Creates the test vendor on demand (organization party, primary address in the company's
+    /// country, defaults copied from the first active vendor) and stamps the UAE party e-invoice
+    /// fields. Idempotent - an existing vendor only gets blank e-invoice fields filled.
+    /// </summary>
+    /// <returns>the test vendor account</returns>
+    private VendAccount ensureTestVendor()
+    {
+        VendTable                 vendTable = VendTable::find(#TestVendor, true);
+        VendTable                 template;
+        DirParty                  dirParty;
+        DirPartyPostalAddressView addrView;
+        boolean                   isFrance  = strLwr(curExt()) == #TargetCompany;
+        Name                      vendName  = isFrance ? #VendorNameFR : #VendorNameAE;
+
+        if (vendTable.RecId)
+        {
+            if (vendTable.CELTAELegalRegType == CELTAELegalRegType::None)
+            {
+                ttsbegin;
+                vendTable.CELTAELegalRegType  = CELTAELegalRegType::TL;
+                vendTable.CELTAEAuthorityName = #AuthorityNameAE;
+                vendTable.update();
+                ttscommit;
+            }
+
+            info(strFmt("@CELTLabels:TestDataVendorReady", #TestVendor, vendName));
+            return #TestVendor;
+        }
+
+        select firstonly template
+            order by AccountNum
+            where template.Blocked == CustVendorBlocked::No;
+
+        if (!template.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataNoVendorTemplate", curExt()));
+        }
+
+        ttsbegin;
+        vendTable.clear();
+        vendTable.initValue();
+        vendTable.AccountNum = #TestVendor;
+        vendTable.VendGroup  = template.VendGroup;
+        vendTable.PaymTermId = template.PaymTermId;
+        vendTable.Currency   = template.Currency;
+        vendTable.TaxGroup   = template.TaxGroup;
+        vendTable.PaymMode   = template.PaymMode;
+        vendTable.Party      = DirPartyTable::createNew(DirPartyType::Organization, vendName).RecId;
+
+        // UAE party identification (BTAE-15 / BTAE-12): trade licence issued by the Dubai DET.
+        vendTable.CELTAELegalRegType  = CELTAELegalRegType::TL;
+        vendTable.CELTAEAuthorityName = #AuthorityNameAE;
+        vendTable.insert();
+
+        dirParty = DirParty::constructFromCommon(vendTable);
+
+        addrView.LocationName    = vendName;
+        addrView.Street          = isFrance ? '12 rue de Rivoli' : 'Sheikh Zayed Road';
+        addrView.City            = isFrance ? 'Paris' : 'Dubai';
+        addrView.ZipCode         = isFrance ? '75001' : '';
+        addrView.CountryRegionId = isFrance ? #CountryFRA : #CountryARE;
+        addrView.IsPrimary       = NoYes::Yes;
+
+        dirParty.createOrUpdatePostalAddress(addrView);
+        ttscommit;
+
+        info(strFmt("@CELTLabels:TestDataVendorCreated", #TestVendor, vendName));
+        return #TestVendor;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>setupVendorRegistrations</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Adds the test vendor's tax registrations (the supplier side of a purchase e-invoice) on the party
+    /// location the SUPPLIER extraction chain reads (DIRPARTYLOCATION_SUPPLIER -> TAXREGISTRATION_SUPPLIER,
+    /// joined on DirPartyLocation.RecId), marks that location as the primary tax-registration address and
+    /// stamps the vendor's Tax exempt number (VendTable.VATNum - the VENDTABLE_SUPPLIER.VATNUM fallback for
+    /// IBT-031). UAE: VAT (15-digit TRN, feeds IBT-031 and IBT-034 first 10), EndPoint ID '0235;&lt;TRN&gt;'
+    /// (Peppol address) and TL (trade licence, IBT-030, matching the vendor's CELTAELegalRegType TL).
+    /// France: SIREN and VAT. Never fails silently: a vendor with no address gets one created and an
+    /// unresolvable location is an error. Idempotent through ensureRegistration.
+    /// </summary>
+    private void setupVendorRegistrations()
+    {
+        VendTable               vendTable = VendTable::find(#TestVendor);
+        DirPartyLocation        partyLoc;
+        DirPartyLocation        partyLocUpd;
+        boolean                 isFrance  = strLwr(curExt()) == #TargetCompany;
+        TaxRegistrationNumber   vatNumber = isFrance ? #VendorVAT : #AEVendorTRN;
+
+        if (!vendTable.RecId)
+        {
+            return;
+        }
+
+        partyLoc = this.findVendorRegistrationLocation(vendTable);
+
+        if (!partyLoc.RecId)
+        {
+            throw error(strFmt("@CELTLabels:TestDataVendorNoLocation", #TestVendor));
+        }
+
+        // The extraction ranks registration addresses by IsPrimaryTaxRegistration; make it unambiguous.
+        if (partyLoc.IsPrimaryTaxRegistration == NoYes::No)
+        {
+            ttsbegin;
+            select forupdate firstonly partyLocUpd where partyLocUpd.RecId == partyLoc.RecId;
+            partyLocUpd.IsPrimaryTaxRegistration = NoYes::Yes;
+            partyLocUpd.update();
+            ttscommit;
+        }
+
+        if (isFrance)
+        {
+            this.ensureRegistration(partyLoc.RecId, #RegTypeSIREN, #VendorSIREN);
+            this.ensureRegistration(partyLoc.RecId, #RegTypeVAT,   #VendorVAT);
+        }
+        else
+        {
+            this.ensureRegistration(partyLoc.RecId, #RegTypeVAT,      #AEVendorTRN,                     #CountryARE);
+            this.ensureRegistration(partyLoc.RecId, #RegTypeEndpoint, #EndpointSchemeAE + #AEVendorTRN, #CountryARE);
+            this.ensureRegistration(partyLoc.RecId, #RegTypeTL,       #AEVendorTL,                      #CountryARE);
+        }
+
+        // Tax exempt number on the vendor master - the VENDTABLE_SUPPLIER.VATNUM fallback for IBT-031.
+        if (vendTable.VATNum != vatNumber)
+        {
+            ttsbegin;
+            vendTable = VendTable::find(#TestVendor, true);
+            vendTable.VATNum = vatNumber;
+            vendTable.update();
+            ttscommit;
+        }
+
+        info(strFmt("@CELTLabels:TestDataVendorRegsDone", #TestVendor, vatNumber));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>findVendorRegistrationLocation</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Resolves the vendor party location that must carry the supplier registrations: the primary postal
+    /// address first, else any EXISTING location of the party (the one DIRPARTYLOCATION_SUPPLIER extracts -
+    /// a second address is never created when one exists, or the registrations would land where the
+    /// extraction does not look), else - when the party has no location at all - a primary postal address
+    /// created in the company's country.
+    /// </summary>
+    /// <param name = "_vendTable">the test vendor</param>
+    /// <returns>the DirPartyLocation to attach registrations to (empty buffer if it cannot be resolved)</returns>
+    private DirPartyLocation findVendorRegistrationLocation(VendTable _vendTable)
+    {
+        LogisticsPostalAddress      postalAddr = _vendTable.postalAddress();
+        DirPartyLocation            partyLoc;
+        DirParty                    dirParty;
+        DirPartyPostalAddressView   addrView;
+        boolean                     isFrance   = strLwr(curExt()) == #TargetCompany;
+
+        // 1) The primary postal address - the normal case.
+        if (postalAddr.RecId)
+        {
+            partyLoc = DirPartyLocation::findByPartyLocation(_vendTable.Party, postalAddr.Location);
+        }
+
+        // 2) Any existing location, preferring a primary postal address.
+        if (!partyLoc.RecId)
+        {
+            select firstonly partyLoc
+                order by partyLoc.IsPrimary desc, partyLoc.IsPostalAddress desc, partyLoc.RecId asc
+                where partyLoc.Party == _vendTable.Party;
+        }
+
+        // 3) No location at all: create a primary postal address in the company's country.
+        if (!partyLoc.RecId)
+        {
+            ttsbegin;
+            dirParty = DirParty::constructFromCommon(_vendTable);
+            addrView.LocationName    = isFrance ? #VendorNameFR : #VendorNameAE;
+            addrView.Street          = isFrance ? '12 rue de Rivoli' : #AEStreet;
+            addrView.City            = isFrance ? 'Paris' : #AECity;
+            addrView.ZipCode         = isFrance ? '75001' : '';
+            addrView.CountryRegionId = isFrance ? #CountryFRA : #CountryARE;
+            addrView.IsPrimary       = NoYes::Yes;
+            dirParty.createOrUpdatePostalAddress(addrView);
+            ttscommit;
+
+            postalAddr = _vendTable.postalAddress();
+            if (postalAddr.RecId)
+            {
+                partyLoc = DirPartyLocation::findByPartyLocation(_vendTable.Party, postalAddr.Location);
+            }
+        }
+
+        return partyLoc;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>findServiceItem</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The first released item that can be ordered and invoiced in this company. Only items that carry
+    /// an item model group, an item group and both dimension groups qualify: an item released without a
+    /// model group reports as not stocked (isStocked() reads a blank group) and used to be picked - UAE
+    /// item 4402 - and the purchase order then failed with "Enter a value in the Item model group field".
+    /// Non-stocked items win, then service-type items (invoiced for the ordered quantity).
+    /// </summary>
+    /// <returns>item id</returns>
+    private ItemId findServiceItem()
+    {
+        InventTable                         inventTable;
+        InventModelGroupItem                modelGroupItem;
+        InventItemGroupItem                 itemGroupItem;
+        EcoResStorageDimensionGroupItem     storageDimItem;
+        EcoResTrackingDimensionGroupItem    trackingDimItem;
+        ItemId                              serviceItemId;
+
+        while select inventTable
+            order by ItemId
+            exists join modelGroupItem
+                where modelGroupItem.ItemId         == inventTable.ItemId
+                   && modelGroupItem.ItemDataAreaId == inventTable.DataAreaId
+            exists join itemGroupItem
+                where itemGroupItem.ItemId         == inventTable.ItemId
+                   && itemGroupItem.ItemDataAreaId == inventTable.DataAreaId
+            exists join storageDimItem
+                where storageDimItem.ItemId         == inventTable.ItemId
+                   && storageDimItem.ItemDataAreaId == inventTable.DataAreaId
+            exists join trackingDimItem
+                where trackingDimItem.ItemId         == inventTable.ItemId
+                   && trackingDimItem.ItemDataAreaId == inventTable.DataAreaId
+        {
+            if (!inventTable.isStocked())
+            {
+                return inventTable.ItemId;
+            }
+
+            if (serviceItemId == '' && inventTable.ItemType == ItemType::Service)
+            {
+                serviceItemId = inventTable.ItemId;
+            }
+        }
+
+        if (serviceItemId == '')
+        {
+            throw error(strFmt("@CELTLabels:TestDataNoServiceItem", curExt()));
+        }
+
+        return serviceItemId;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>stampItemEInvoiceFields</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Fills the item's e-invoice fields when blank: SAC (BTAE-17) and item type Services (BTAE-13).
+    /// </summary>
+    /// <param name = "_itemId">released item</param>
+    private void stampItemEInvoiceFields(ItemId _itemId)
+    {
+        InventTable inventTable;
+
+        ttsbegin;
+        select forupdate inventTable
+            where inventTable.ItemId == _itemId;
+
+        if (inventTable.CELTAEServiceAccountingCode == '')
+        {
+            inventTable.CELTAEServiceAccountingCode = #ServiceSAC;
+        }
+        if (inventTable.CELTAEItemType == CELTAEItemType::None)
+        {
+            inventTable.CELTAEItemType = CELTAEItemType::Services;
+        }
+        inventTable.update();
+        ttscommit;
+
+        info(strFmt("@CELTLabels:TestDataItemStamped", _itemId, inventTable.CELTAEServiceAccountingCode));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>ensurePurchaseInventPosting</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Ensures the purchase item's item group has the purchase inventory posting accounts, copying
+    /// each missing type from any group that already has it. Without this, a group with no posting
+    /// setup (e.g. Services) blocks invoicing with "Failed to resolve account number for transaction
+    /// type Cost of purchased materials invoiced". Idempotent and company-agnostic.
+    /// </summary>
+    /// <param name = "_itemId">the purchase item</param>
+    private void ensurePurchaseInventPosting(ItemId _itemId)
+    {
+        InventItemGroupItem groupItem;
+        ItemGroupId         groupId;
+        InventPosting       existing, source, target;
+        container           purchTypes;
+        int                 i;
+        InventAccountType   accType;
+
+        select firstonly ItemGroupId from groupItem
+            where groupItem.ItemId         == _itemId
+               && groupItem.ItemDataAreaId == curExt();
+        groupId = groupItem.ItemGroupId;
+
+        if (groupId == '')
+        {
+            return;
+        }
+
+        purchTypes = [
+            InventAccountType::PurchPackingSlip,
+            InventAccountType::PurchPackingSlipOffsetAccount,
+            InventAccountType::PurchReceipt,
+            InventAccountType::PurchConsump];
+
+        for (i = 1; i <= conLen(purchTypes); i++)
+        {
+            accType = conPeek(purchTypes, i);
+
+            // Skip when the group already resolves this type directly or through an All-items row.
+            select firstonly RecId from existing
+                where existing.DataAreaId        == curExt()
+                   && existing.InventAccountType == accType
+                   && ((existing.ItemCode == InventPostingItemCode::GroupId && existing.ItemRelation == groupId)
+                       || existing.ItemCode == InventPostingItemCode::All);
+            if (existing.RecId)
+            {
+                continue;
+            }
+
+            // Copy the account from any group that already has this type.
+            select firstonly source
+                where source.DataAreaId        == curExt()
+                   && source.InventAccountType == accType
+                   && source.ItemCode          == InventPostingItemCode::GroupId
+                   && source.ItemRelation      != groupId;
+
+            if (source.RecId)
+            {
+                target.clear();
+                target.InventAccountType = accType;
+                target.ItemCode          = InventPostingItemCode::GroupId;
+                target.ItemRelation      = groupId;
+                target.LedgerDimension   = source.LedgerDimension;
+                target.CustVendCode      = source.CustVendCode;
+                target.CustVendRelation  = source.CustVendRelation;
+                target.CategoryRelation  = source.CategoryRelation;
+                target.CostCode          = source.CostCode;
+                target.CostRelation      = source.CostRelation;
+                target.TaxGroupId        = source.TaxGroupId;
+                target.insert();
+            }
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>createAndPostPurchaseInvoice</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Creates a one-line purchase order with every header e-invoice field filled, confirms it and
+    /// posts the vendor invoice for the ordered quantity - the standard posting path, so the
+    /// fields reach VendInvoiceJour through the initFromPurchTable copy.
+    /// </summary>
+    /// <param name = "_vendAccount">order vendor</param>
+    /// <param name = "_itemId">service item for the line</param>
+    /// <returns>[purchase order id, posted vendor invoice number]</returns>
+    private container createAndPostPurchaseInvoice(VendAccount _vendAccount, ItemId _itemId)
+    {
+        PurchTable      purchTable;
+        PurchLine       purchLine;
+        VendTable       vendTable   = VendTable::find(_vendAccount);
+        InventTable     inventTable = InventTable::find(_itemId);
+        InventLocation  inventLocation;
+        PurchFormLetter purchFormLetter;
+        VendInvoiceJour vendInvoiceJour;
+        TransDate       postingDate = DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone());
+        boolean         isFrance    = strLwr(curExt()) == #TargetCompany;
+        str             vendorInvoiceNum;
+
+        // Vendor invoice numbers must be unique per vendor - stamp the run time.
+        vendorInvoiceNum = 'CELT-PI-' + strRem(strRem(strRem(DateTimeUtil::toStr(DateTimeUtil::utcNow()), '-'), ':'), 'T');
+
+        ttsbegin;
+        purchTable.clear();
+        purchTable.initValue(PurchaseType::Purch);
+        purchTable.PurchId       = NumberSeq::newGetNum(PurchParameters::numRefPurchId()).num();
+        purchTable.OrderAccount  = _vendAccount;
+        purchTable.initFromVendTable(vendTable);
+        purchTable.PurchaseType  = PurchaseType::Purch;
+        purchTable.DocumentState = VersioningDocumentState::Approved;
+
+        if (!purchTable.InventSiteId)
+        {
+            select firstonly inventLocation
+                order by InventLocationId;
+            purchTable.InventSiteId     = inventLocation.InventSiteId;
+            purchTable.InventLocationId = inventLocation.InventLocationId;
+        }
+
+        // Header e-invoice fields (copied to VendInvoiceJour at posting).
+        purchTable.CELTAETransactionType    = CELTAETransactionType::Standard;
+        purchTable.CELTAEFrequencyOfBilling = CELTAEFrequencyOfBilling::Monthly;
+        purchTable.CELTInvoicePeriodStart   = mkDate(1, mthOfYr(postingDate), year(postingDate));
+        purchTable.CELTInvoicePeriodEnd     = endMth(postingDate);
+        purchTable.CELTAECustomsRefNumber   = '';
+        purchTable.CELTFRVatDueDateCode     = isFrance ? '35' : '';
+        purchTable.CELTAEPrincipalId        = '';
+        purchTable.CELTAEInvoiceNote        = #PurchaseNote;
+        purchTable.CELTAECreditNoteReason   = CELTAECreditNoteReason::None;
+        purchTable.insert();
+
+        purchLine.clear();
+        purchLine.initValue(purchTable.PurchaseType);
+        purchLine.PurchId = purchTable.PurchId;
+        purchLine.ItemId  = _itemId;
+        purchLine.initFromPurchTable(purchTable);
+        purchLine.initFromInventTable(inventTable);
+        purchLine.PurchQty   = 1;
+        purchLine.PurchPrice = 1000.00;
+        purchLine.LineAmount = 1000.00;
+        purchLine.createLine(true, false, false, true, true, false);
+        ttscommit;
+
+        // Confirm the order.
+        purchFormLetter = PurchFormLetter::construct(DocumentStatus::PurchaseOrder);
+        purchFormLetter.update(purchTable, '', postingDate, PurchUpdate::All, AccountOrder::None, NoYes::No, NoYes::No);
+
+        purchTable = PurchTable::find(purchTable.PurchId);
+
+        // Product receipt before the invoice: the company enforces invoice matching (three-way policy,
+        // VendParameters.MatchingPolicyAllowOverride = No), so a posted product receipt is required and
+        // a line-level policy override would be ignored. Receive the full ordered quantity.
+        purchFormLetter = PurchFormLetter::construct(DocumentStatus::PackingSlip);
+        purchFormLetter.update(purchTable, strFmt('%1-PR', vendorInvoiceNum), postingDate, PurchUpdate::All, AccountOrder::None, NoYes::No, NoYes::No);
+
+        purchTable = PurchTable::find(purchTable.PurchId);
+
+        // Invoice FROM the posted product receipt (PurchUpdate::PackingSlip): this builds the invoice
+        // lines from the receipt and matches them to it, which the company three-way policy requires.
+        // PurchUpdate::All instead builds order-based lines that are not matched, and the post is blocked
+        // with "no product receipts are selected".
+        purchFormLetter = PurchFormLetter::construct(DocumentStatus::Invoice);
+        purchFormLetter.update(purchTable, vendorInvoiceNum, postingDate, PurchUpdate::PackingSlip, AccountOrder::None, NoYes::No, NoYes::No);
+
+        select firstonly vendInvoiceJour
+            order by RecId desc
+            where vendInvoiceJour.PurchId == purchTable.PurchId;
+
+        if (!vendInvoiceJour.RecId)
+        {
+            throw error("@CELTLabels:TestDataPurchNoJournal");
+        }
+
+        return [purchTable.PurchId, vendInvoiceJour.InvoiceId];
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>reportPurchaseFields</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Reads the posted journal back and shows the copied e-invoice fields - the proof that the
+    /// posting copy worked, not just that an invoice was created.
+    /// </summary>
+    /// <param name = "_purchId">purchase order the invoice was posted from</param>
+    private void reportPurchaseFields(PurchId _purchId)
+    {
+        VendInvoiceJour vendInvoiceJour;
+
+        select firstonly vendInvoiceJour
+            order by RecId desc
+            where vendInvoiceJour.PurchId == _purchId;
+
+        info(strFmt("@CELTLabels:TestDataPurchFieldsCopied",
+            enum2Str(vendInvoiceJour.CELTAETransactionType),
+            enum2Str(vendInvoiceJour.CELTAEFrequencyOfBilling),
+            date2Str(vendInvoiceJour.CELTInvoicePeriodStart, 321, DateDay::Digits2, DateSeparator::Hyphen, DateMonth::Digits2, DateSeparator::Hyphen, DateYear::Digits4),
+            date2Str(vendInvoiceJour.CELTInvoicePeriodEnd,   321, DateDay::Digits2, DateSeparator::Hyphen, DateMonth::Digits2, DateSeparator::Hyphen, DateYear::Digits4),
+            vendInvoiceJour.CELTAEInvoiceNote));
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>lastError</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Returns the most recent infolog error text, falling back to a generic message.
+    /// </summary>
+    /// <returns>error message text</returns>
+    private static str lastError()
+    {
+        str msg = infolog.text();
+        return msg != '' ? msg : "@CELTLabels:TestDataSeeInfolog";
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

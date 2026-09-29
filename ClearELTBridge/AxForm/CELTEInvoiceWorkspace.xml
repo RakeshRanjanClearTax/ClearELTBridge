@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTEInvoiceWorkspace</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTEInvoiceWorkspace extends FormRun
+{
+}
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="" />
+		<DataControls xmlns="" />
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources />
+	<Design>
+		<Caption xmlns="">@CELTLabels:EInvoice</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<Style xmlns="">Workspace</Style>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormActionPaneControl">
+				<Name>ActionPane</Name>
+				<Type>ActionPane</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls />
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormTabControl">
+				<Name>PanoramaBody</Name>
+				<ExtendedStyle>tab_simpleFastTab</ExtendedStyle>
+				<Type>Tab</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>TilesSection</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>AllSalesInvoices</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension>
+									<Name>TileButtonControl</Name>
+									<ExtensionComponents />
+									<ExtensionProperties>
+										<AxFormControlExtensionProperty>
+											<Name>tile</Name>
+											<Type>String</Type>
+											<Value>CELTSalesInvoicesTile</Value>
+										</AxFormControlExtensionProperty>
+										<AxFormControlExtensionProperty>
+											<Name>tileDisplay</Name>
+											<Type>Enum</Type>
+											<TypeName>TileDisplay</TypeName>
+										</AxFormControlExtensionProperty>
+									</ExtensionProperties>
+								</FormControlExtension>
+								<Text>@CELTLabels:AllSalesInvoices</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>AllProjectInvoices</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension>
+									<Name>TileButtonControl</Name>
+									<ExtensionComponents />
+									<ExtensionProperties>
+										<AxFormControlExtensionProperty>
+											<Name>tile</Name>
+											<Type>String</Type>
+											<Value>CELTProjectInvoicesTile</Value>
+										</AxFormControlExtensionProperty>
+										<AxFormControlExtensionProperty>
+											<Name>tileDisplay</Name>
+											<Type>Enum</Type>
+											<TypeName>TileDisplay</TypeName>
+										</AxFormControlExtensionProperty>
+									</ExtensionProperties>
+								</FormControlExtension>
+								<Text>@CELTLabels:AllProjectInvoices</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>AllPurchaseInvoices</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension>
+									<Name>TileButtonControl</Name>
+									<ExtensionComponents />
+									<ExtensionProperties>
+										<AxFormControlExtensionProperty>
+											<Name>tile</Name>
+											<Type>String</Type>
+											<Value>CELTPurchaseInvoicesTile</Value>
+										</AxFormControlExtensionProperty>
+										<AxFormControlExtensionProperty>
+											<Name>tileDisplay</Name>
+											<Type>Enum</Type>
+											<TypeName>TileDisplay</TypeName>
+										</AxFormControlExtensionProperty>
+									</ExtensionProperties>
+								</FormControlExtension>
+								<Text>@CELTLabels:AllPurchaseInvoices</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>AllVendInvoices</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension>
+									<Name>TileButtonControl</Name>
+									<ExtensionComponents />
+									<ExtensionProperties>
+										<AxFormControlExtensionProperty>
+											<Name>tile</Name>
+											<Type>String</Type>
+											<Value>CELTVendInvoicesTile</Value>
+										</AxFormControlExtensionProperty>
+										<AxFormControlExtensionProperty>
+											<Name>tileDisplay</Name>
+											<Type>Enum</Type>
+											<TypeName>TileDisplay</TypeName>
+										</AxFormControlExtensionProperty>
+									</ExtensionProperties>
+								</FormControlExtension>
+								<Text>@CELTLabels:VendPurchaseInvoices</Text>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormMenuFunctionButtonControl">
+								<Name>AllIncomingSalesInvoices</Name>
+								<Type>MenuFunctionButton</Type>
+								<FormControlExtension>
+									<Name>TileButtonControl</Name>
+									<ExtensionComponents />
+									<ExtensionProperties>
+										<AxFormControlExtensionProperty>
+											<Name>tile</Name>
+											<Type>String</Type>
+											<Value>CELTIncomingSalesInvoicesTile</Value>
+										</AxFormControlExtensionProperty>
+										<AxFormControlExtensionProperty>
+											<Name>tileDisplay</Name>
+											<Type>Enum</Type>
+											<TypeName>TileDisplay</TypeName>
+										</AxFormControlExtensionProperty>
+									</ExtensionProperties>
+								</FormControlExtension>
+								<Text>@CELTLabels:AllIncomingSalesInvoices</Text>
+							</AxFormControl>
+						</Controls>
+						<ColumnsMode>Fill</ColumnsMode>
+						<Caption>@CELTLabels:MaintainEInvoice</Caption>
+						<FastTabExpanded>Yes</FastTabExpanded>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormTabPageControl">
+						<Name>RelatedLinksSection</Name>
+						<Type>TabPage</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<Controls>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>PeriodicTasksGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>IntegrationBatchLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTIntegrationBatch</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+										<Style>Link</Style>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>CleanupLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTCleanup</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+										<Style>Link</Style>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>GetStatusLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTGetStatus</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+										<Style>Link</Style>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:PeriodicTasks</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>SetupGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>ParametersLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTParameters</MenuItemName>
+										<Style>Link</Style>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>FieldSetupLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTFieldSetup</MenuItemName>
+										<Style>Link</Style>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>ConfigParserLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTConfigParser</MenuItemName>
+										<MenuItemType>Action</MenuItemType>
+										<Style>Link</Style>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>CompanyCapabilitiesLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTCompanyCapabilities</MenuItemName>
+										<Style>Link</Style>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:Setup</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+							<AxFormControl xmlns=""
+								i:type="AxFormGroupControl">
+								<Name>LogsGroup</Name>
+								<Type>Group</Type>
+								<FormControlExtension
+									i:nil="true" />
+								<Controls>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>LogLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTLog</MenuItemName>
+										<Style>Link</Style>
+									</AxFormControl>
+									<AxFormControl xmlns=""
+										i:type="AxFormMenuFunctionButtonControl">
+										<Name>ResponseLogLink</Name>
+										<Type>MenuFunctionButton</Type>
+										<FormControlExtension
+											i:nil="true" />
+										<ButtonDisplay>TextOnly</ButtonDisplay>
+										<MenuItemName>CELTEInvoiceResponseLog</MenuItemName>
+										<Style>Link</Style>
+									</AxFormControl>
+								</Controls>
+								<Caption>@CELTLabels:Logs</Caption>
+								<FrameOptionButton>Hide</FrameOptionButton>
+							</AxFormControl>
+						</Controls>
+						<Columns>1</Columns>
+						<ColumnsMode>Fixed</ColumnsMode>
+						<Caption>@CELTLabels:RelatedLinks</Caption>
+						<FastTabExpanded>Yes</FastTabExpanded>
+					</AxFormControl>
+				</Controls>
+				<Style>FastTabs</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

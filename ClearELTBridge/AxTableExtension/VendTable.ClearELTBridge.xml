@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxTableExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>VendTable.ClearELTBridge</Name>
+	<FieldGroupExtensions />
+	<FieldGroups>
+		<AxTableFieldGroup>
+			<Name>CELTEInvoiceFields</Name>
+			<Label>@CELTLabels:EInvoiceFields</Label>
+			<Fields>
+				<AxTableFieldGroupField>
+					<DataField>CELTAELegalRegType</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEAuthorityName</DataField>
+				</AxTableFieldGroupField>
+				<AxTableFieldGroupField>
+					<DataField>CELTAEPassportCountry</DataField>
+				</AxTableFieldGroupField>
+			</Fields>
+		</AxTableFieldGroup>
+	</FieldGroups>
+	<FieldModifications />
+	<Fields>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldEnum">
+			<Name>CELTAELegalRegType</Name>
+			<Label>@CELTLabels:AELegalRegType</Label>
+			<EnumType>CELTAELegalRegType</EnumType>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAEAuthorityName</Name>
+			<Label>@CELTLabels:AEAuthorityName</Label>
+			<StringSize>100</StringSize>
+		</AxTableField>
+		<AxTableField xmlns=""
+			i:type="AxTableFieldString">
+			<Name>CELTAEPassportCountry</Name>
+			<ExtendedDataType>LogisticsAddressCountryRegionId</ExtendedDataType>
+			<Label>@CELTLabels:AEPassportCountry</Label>
+		</AxTableField>
+	</Fields>
+	<Indexes />
+	<Mappings />
+	<PropertyModifications />
+	<Relations />
+</AxTableExtension>

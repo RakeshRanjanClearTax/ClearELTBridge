@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTVendInvoiceJour_Extension</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+/// <summary>
+/// Posting-copy hooks on the vendor invoice journal for the e-invoice flow.
+/// </summary>
+[ExtensionOf(tableStr(VendInvoiceJour))]
+final class CELTVendInvoiceJour_Extension
+{
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>initFromPurchTable</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Carries the CELT e-invoicing header fields (UAE transaction type / billing frequency /
+    /// invoicing period / customs reference, FR tax point date code) from the purchase order to
+    /// the posted journal - F&amp;O does not copy extension fields at posting by itself, and a
+    /// missed copy posts silently blank.
+    /// </summary>
+    public void initFromPurchTable(PurchTable purchTable)
+    {
+        next initFromPurchTable(purchTable);
+
+        this.CELTAETransactionType    = purchTable.CELTAETransactionType;
+        this.CELTAEFrequencyOfBilling = purchTable.CELTAEFrequencyOfBilling;
+        this.CELTInvoicePeriodStart   = purchTable.CELTInvoicePeriodStart;
+        this.CELTInvoicePeriodEnd     = purchTable.CELTInvoicePeriodEnd;
+        this.CELTAECustomsRefNumber   = purchTable.CELTAECustomsRefNumber;
+        this.CELTFRVatDueDateCode     = purchTable.CELTFRVatDueDateCode;
+        this.CELTAEPrincipalId        = purchTable.CELTAEPrincipalId;
+        this.CELTAEInvoiceNote        = purchTable.CELTAEInvoiceNote;
+        this.CELTAECreditNoteReason   = purchTable.CELTAECreditNoteReason;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initFromVendInvoiceInfoTable</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Carries the CELT e-invoicing header fields from the PENDING vendor invoice to the posted
+    /// journal - non-PO pending invoices never run initFromPurchTable, so without this copy the
+    /// fields would post silently blank for the most common AP entry path. For PO invoices
+    /// initFromPurchTable runs afterwards and the purchase order's values win.
+    /// </summary>
+    public void initFromVendInvoiceInfoTable(VendInvoiceInfoTable _vendInvoiceInfoTable)
+    {
+        next initFromVendInvoiceInfoTable(_vendInvoiceInfoTable);
+
+        this.CELTAETransactionType    = _vendInvoiceInfoTable.CELTAETransactionType;
+        this.CELTAEFrequencyOfBilling = _vendInvoiceInfoTable.CELTAEFrequencyOfBilling;
+        this.CELTInvoicePeriodStart   = _vendInvoiceInfoTable.CELTInvoicePeriodStart;
+        this.CELTInvoicePeriodEnd     = _vendInvoiceInfoTable.CELTInvoicePeriodEnd;
+        this.CELTAECustomsRefNumber   = _vendInvoiceInfoTable.CELTAECustomsRefNumber;
+        this.CELTFRVatDueDateCode     = _vendInvoiceInfoTable.CELTFRVatDueDateCode;
+        this.CELTAEPrincipalId        = _vendInvoiceInfoTable.CELTAEPrincipalId;
+        this.CELTAEInvoiceNote        = _vendInvoiceInfoTable.CELTAEInvoiceNote;
+        this.CELTAECreditNoteReason   = _vendInvoiceInfoTable.CELTAECreditNoteReason;
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>

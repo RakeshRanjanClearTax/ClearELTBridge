@@ -1,0 +1,701 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxForm xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="Microsoft.Dynamics.AX.Metadata.V6">
+	<Name>CELTIncomingSalesInvoices</Name>
+	<SourceCode>
+		<Methods xmlns="">
+			<Method>
+				<Name>classDeclaration</Name>
+				<Source><![CDATA[
+[Form]
+public class CELTIncomingSalesInvoices extends FormRun
+{
+    // Per-row cache for the newest writeback status row of the document being rendered: the
+    // Clear status columns are display methods that all read the same row, so the first one
+    // pays the select and the rest reuse it. Keyed on the header RecId.
+    ClearTaxEInvoiceResponseTable wbCache;
+    RecId                         wbCacheHeaderRecId;
+}
+]]></Source>
+			</Method>
+			<Method>
+				<Name>init</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// All incoming sales e-invoices (self-billed invoices received from customers) landed by the writeback, newest issue date first.
+    /// </summary>
+    public void init()
+    {
+        super();
+
+        CLREInvoiceARHeader_ds.query().dataSourceTable(tableNum(CLREInvoiceARHeader)).addSortField(fieldNum(CLREInvoiceARHeader, IssueDate), SortOrder::Descending);
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>findWriteback</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// The newest Clear writeback status row for the incoming sales document - matched on the invoice
+    /// id (the header's document number) - cached per header row so the grid's status columns
+    /// cost one select per rendered row instead of one per column.
+    /// </summary>
+    /// <param name = "_header">the incoming sales e-invoice header being rendered</param>
+    /// <returns>newest writeback row; an empty buffer when none has landed</returns>
+    public ClearTaxEInvoiceResponseTable findWriteback(CLREInvoiceARHeader _header)
+    {
+        if (wbCacheHeaderRecId != _header.RecId)
+        {
+            wbCache.clear();
+
+            if (_header.DocumentNo != '')
+            {
+                // Match current rows (InvoiceId) and legacy-shaped rows (invoice number in
+                // DocumentId), like the response log's filter. Newest by creation time - RecId
+                // order is not chronological across AOS sessions (per-AOS id blocks).
+                select firstonly wbCache
+                    order by CreatedDateTime desc, RecId desc
+                    where wbCache.InvoiceId == _header.DocumentNo
+                       || wbCache.DocumentId == _header.DocumentNo;
+            }
+
+            wbCacheHeaderRecId = _header.RecId;
+        }
+
+        return wbCache;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>invalidateWritebackCache</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Forgets the cached writeback row so the next render re-reads it from the table.
+    /// </summary>
+    public void invalidateWritebackCache()
+    {
+        wbCacheHeaderRecId = 0;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>research</Name>
+				<Source><![CDATA[
+    /// <summary>
+    /// Re-reads the grid after an external action. The writeback cache must be dropped first,
+    /// or the re-render of the current row would show the pre-action values.
+    /// </summary>
+    /// <param name = "_retainPosition">keep the cursor on the current row</param>
+    public void research(boolean _retainPosition = true)
+    {
+        this.invalidateWritebackCache();
+        CLREInvoiceARHeader_ds.research(_retainPosition);
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+		<DataSources xmlns="">
+			<DataSource>
+				<Name>CLREInvoiceARHeader</Name>
+				<Methods>
+					<Method>
+						<Name>executeQuery</Name>
+						<Source><![CDATA[
+        public void executeQuery()
+        {
+            element.invalidateWritebackCache();
+            super();
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>research</Name>
+						<Source><![CDATA[
+        public void research(boolean _retainPosition = false)
+        {
+            element.invalidateWritebackCache();
+            super(_retainPosition);
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>companyCode</Name>
+						<Source><![CDATA[
+        display str companyCode(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).CompanyCode;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>accountingDocNumber</Name>
+						<Source><![CDATA[
+        display str accountingDocNumber(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).ErpDocNumber;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>postingDate</Name>
+						<Source><![CDATA[
+        /// <summary>The writeback row's created date - the closest the status feed carries to a posting date.</summary>
+        display TransDate postingDate(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).CreatedDate;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>fiscalYear</Name>
+						<Source><![CDATA[
+        display str fiscalYear(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).FiscalYear;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>sellerSiren</Name>
+						<Source><![CDATA[
+        /// <summary>Seller SIREN - from the writeback, else the document's own seller legal company id.</summary>
+        display str sellerSiren(CLREInvoiceARHeader _header)
+        {
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_header);
+            return wb.SellerSiren != '' ? wb.SellerSiren : _header.SellerLegalCompanyID;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>clearInvoiceType</Name>
+						<Source><![CDATA[
+        display str clearInvoiceType(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).InvoiceType;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentId</Name>
+						<Source><![CDATA[
+        /// <summary>Clear document id - from the newest writeback, else the header's stamped id.</summary>
+        display str documentId(CLREInvoiceARHeader _header)
+        {
+            ClearTaxEInvoiceResponseTable wb = element.findWriteback(_header);
+            return wb.DocumentId != '' ? wb.DocumentId : _header.ClearDocumentId;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>errorDetails</Name>
+						<Source><![CDATA[
+        display str errorDetails(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).ErrorDetails;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>warningDetails</Name>
+						<Source><![CDATA[
+        display str warningDetails(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).WarningDetails;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatus</Name>
+						<Source><![CDATA[
+        display str documentStatus(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PAExchangeStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatusReasonCode</Name>
+						<Source><![CDATA[
+        display str documentStatusReasonCode(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PAExchangeReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>documentStatusReasonMsg</Name>
+						<Source><![CDATA[
+        display str documentStatusReasonMsg(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PAExchangeReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcRejectedStatus</Name>
+						<Source><![CDATA[
+        display str ppfLcRejectedStatus(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PPFLCRejectedStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcRejectedReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfLcRejectedReasonCode(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PPFLCRejectedReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcRejectedReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfLcRejectedReasonMsg(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PPFLCRejectedReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcRefusedStatus</Name>
+						<Source><![CDATA[
+        display str ppfLcRefusedStatus(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PPFLCRefusedStatus;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcRefusedReasonCode</Name>
+						<Source><![CDATA[
+        display str ppfLcRefusedReasonCode(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PPFLCRefusedReasonCodes;
+        }
+
+]]></Source>
+					</Method>
+					<Method>
+						<Name>ppfLcRefusedReasonMsg</Name>
+						<Source><![CDATA[
+        display str ppfLcRefusedReasonMsg(CLREInvoiceARHeader _header)
+        {
+            return element.findWriteback(_header).PPFLCRefusedReasonMsg;
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+				<Fields />
+			</DataSource>
+		</DataSources>
+		<DataControls xmlns="">
+			<Control>
+				<Name>Grid_DocumentNo</Name>
+				<Type>String</Type>
+				<Methods>
+					<Method>
+						<Name>jumpRef</Name>
+						<Source><![CDATA[
+        /// <summary>
+        /// Opens the incoming sales e-invoice details (header, lines, VAT breakdown) for this document.
+        /// </summary>
+        public void jumpRef()
+        {
+            Args args = new Args(formStr(CELTIncomingSalesInvoiceDetails));
+
+            args.record(CLREInvoiceARHeader);
+            args.caller(element);
+
+            new MenuFunction(menuItemDisplayStr(CELTIncomingSalesInvoiceDetails), MenuItemType::Display).run(args);
+        }
+
+]]></Source>
+					</Method>
+				</Methods>
+			</Control>
+		</DataControls>
+		<Members xmlns="" />
+	</SourceCode>
+	<DataSources>
+		<AxFormDataSource xmlns="">
+			<Name>CLREInvoiceARHeader</Name>
+			<Table>CLREInvoiceARHeader</Table>
+			<Fields />
+			<ReferencedDataSources />
+			<AllowCreate>No</AllowCreate>
+			<AllowDelete>No</AllowDelete>
+			<AllowEdit>No</AllowEdit>
+			<InsertAtEnd>No</InsertAtEnd>
+			<InsertIfEmpty>No</InsertIfEmpty>
+			<DataSourceLinks />
+			<DerivedDataSources />
+		</AxFormDataSource>
+	</DataSources>
+	<Design>
+		<Caption xmlns="">@CELTLabels:AllIncomingSalesInvoices</Caption>
+		<ShowDeleteButton xmlns="">No</ShowDeleteButton>
+		<ShowNewButton xmlns="">No</ShowNewButton>
+		<ViewEditMode xmlns="">View</ViewEditMode>
+		<Controls xmlns="">
+			<AxFormControl xmlns=""
+				i:type="AxFormActionPaneControl">
+				<Name>ActionPane</Name>
+				<Type>ActionPane</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls />
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGroupControl">
+				<Name>FilterGroup</Name>
+				<Pattern>CustomAndQuickFilters</Pattern>
+				<PatternVersion>1.1</PatternVersion>
+				<Type>Group</Type>
+				<WidthMode>SizeToAvailable</WidthMode>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl>
+						<Name>Quickfilter</Name>
+						<FormControlExtension>
+							<Name>QuickFilterControl</Name>
+							<ExtensionComponents />
+							<ExtensionProperties>
+								<AxFormControlExtensionProperty>
+									<Name>targetControlName</Name>
+									<Type>String</Type>
+									<Value>Grid</Value>
+								</AxFormControlExtensionProperty>
+								<AxFormControlExtensionProperty>
+									<Name>defaultColumnName</Name>
+									<Type>String</Type>
+									<Value>Grid_DocumentNo</Value>
+								</AxFormControlExtensionProperty>
+							</ExtensionProperties>
+						</FormControlExtension>
+					</AxFormControl>
+				</Controls>
+				<ArrangeMethod>HorizontalLeft</ArrangeMethod>
+				<FrameType>None</FrameType>
+				<Style>CustomFilter</Style>
+				<ViewEditMode>Edit</ViewEditMode>
+			</AxFormControl>
+			<AxFormControl xmlns=""
+				i:type="AxFormGridControl">
+				<Name>Grid</Name>
+				<Type>Grid</Type>
+				<FormControlExtension
+					i:nil="true" />
+				<Controls>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentNo</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>DocumentNo</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatus</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:DocumentStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_UniqueId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>UniqueId</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PeppolStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>PeppolStatus</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_LifecycleStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>LifecycleStatus</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormComboBoxControl">
+						<Name>Grid_LastAction</Name>
+						<Type>ComboBox</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>LastAction</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Items />
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_SellerName</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>SellerName</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_BuyerName</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>BuyerName</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_BuyerReference</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>BuyerReference</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_IssueDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>IssueDate</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_CurrencyCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>CurrencyCode</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormRealControl">
+						<Name>Grid_PayableAmount</Name>
+						<Type>Real</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataField>PayableAmount</DataField>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_CompanyCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>companyCode</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:CompanyCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_AccountingDocNumber</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>accountingDocNumber</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:AccountingDocNumber</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormDateControl">
+						<Name>Grid_PostingDate</Name>
+						<Type>Date</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>postingDate</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:PostingDate</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_FiscalYear</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>fiscalYear</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:FiscalYear</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_SellerSiren</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>sellerSiren</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:SellerSiren</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ClearInvoiceType</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>clearInvoiceType</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:InvoiceType</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentId</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentId</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:DocumentId</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_ErrorDetails</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>errorDetails</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:ErrorDetails</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_Warnings</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>warningDetails</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:Warnings</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatusReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatusReasonCode</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:DocumentStatusReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_DocumentStatusReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>documentStatusReasonMsg</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:DocumentStatusReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcRejectedStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcRejectedStatus</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:PPFLcRejectedStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcRejectedReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcRejectedReasonCode</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:PPFLcRejectedReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcRejectedReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcRejectedReasonMsg</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:PPFLcRejectedReasonMsg</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcRefusedStatus</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcRefusedStatus</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:PPFLcRefusedStatus</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcRefusedReasonCode</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcRefusedReasonCode</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:PPFLcRefusedReasonCode</Label>
+					</AxFormControl>
+					<AxFormControl xmlns=""
+						i:type="AxFormStringControl">
+						<Name>Grid_PPFLcRefusedReasonMsg</Name>
+						<Type>String</Type>
+						<FormControlExtension
+							i:nil="true" />
+						<DataMethod>ppfLcRefusedReasonMsg</DataMethod>
+						<DataSource>CLREInvoiceARHeader</DataSource>
+						<Label>@CELTLabels:PPFLcRefusedReasonMsg</Label>
+					</AxFormControl>
+				</Controls>
+				<DataSource>CLREInvoiceARHeader</DataSource>
+				<Style>Tabular</Style>
+			</AxFormControl>
+		</Controls>
+	</Design>
+	<Parts />
+</AxForm>

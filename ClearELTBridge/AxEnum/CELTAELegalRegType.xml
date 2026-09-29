@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxEnum xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>CELTAELegalRegType</Name>
+	<Label>@CELTLabels:AELegalRegType</Label>
+	<UseEnumValue>No</UseEnumValue>
+	<EnumValues>
+		<AxEnumValue>
+			<Name>None</Name>
+			<Label>@CELTLabels:None</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>TL</Name>
+			<Label>@CELTLabels:AELegalRegTypeTL</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>EID</Name>
+			<Label>@CELTLabels:AELegalRegTypeEID</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>CD</Name>
+			<Label>@CELTLabels:AELegalRegTypeCD</Label>
+		</AxEnumValue>
+		<AxEnumValue>
+			<Name>PAS</Name>
+			<Label>@CELTLabels:AELegalRegTypePAS</Label>
+		</AxEnumValue>
+	</EnumValues>
+	<IsExtensible>true</IsExtensible>
+</AxEnum>
